@@ -1,0 +1,34 @@
+# Azur Hôtel PMS (Next.js + Supabase)
+
+## Sécurité (IMPORTANT)
+Tu as partagé une *service_role key* dans le chat : **régénère-la** dans Supabase (Settings → API) après mise en place.
+Ne mets jamais la service_role côté navigateur.
+
+## 1) Buckets Storage
+Créer (Private):
+- ids (pièces identité)
+- pdfs (PDF)
+- receipts (tickets)
+- attachments (preuves)
+- logos (logo)
+
+## 2) Variables d'env
+Copie `.env.example` → `.env.local` et remplis:
+- NEXT_PUBLIC_SUPABASE_URL
+- NEXT_PUBLIC_SUPABASE_ANON_KEY
+- SUPABASE_SERVICE_ROLE_KEY (serveur uniquement)
+- PSEUDO_EMAIL_DOMAIN=azur.local
+
+## 3) Premier admin
+Dans Supabase Auth → Add user:
+- email: azurhotelstaff@azur.local
+- password: (ton choix)
+Ensuite dans table `profiles` créer la ligne:
+- id = id du user auth
+- username = azurhotelstaff
+- role = admin
+- is_active = true
+
+## 4) Lancer en local
+npm install
+npm run dev
