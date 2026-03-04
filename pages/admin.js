@@ -1,11 +1,11 @@
 import Layout from "@/components/Layout";
-import { useAuth } from "./_app";
+
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 
 export default function Admin(){
-  const { session, loading, profile } = useAuth();
+  const { session, loading, profile } = null;
   const router = useRouter();
   const [users,setUsers]=useState([]);
   const [msg,setMsg]=useState("");
