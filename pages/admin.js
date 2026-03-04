@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiClient";
 
 export default function Admin(){
-  const { session, loading, profile } = null;
+  let  session, loading, profile  = null;
   const router = useRouter();
   const [users,setUsers]=useState([]);
   const [msg,setMsg]=useState("");
