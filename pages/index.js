@@ -1,12 +1,12 @@
 export default function Home() {
   return (
-    <div style={{padding:40}}>
+    <div style={{ padding: 40 }}>
       <h1>Azur Hotel PMS</h1>
+      <p>Système de gestion hôtel</p>
 
-      <Link href="/admin">
+      <a href="/admin">
         <button>Accéder au panneau admin</button>
-      </Link>
-
+      </a>
     </div>
   );
 }
