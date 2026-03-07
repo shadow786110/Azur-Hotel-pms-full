@@ -21,7 +21,7 @@ export default function Clients() {
 
   async function fetchClients() {
     const { data, error } = await supabase
-      .from("clients")
+      .from("clients_pms")
       .select("*")
       .order("id", { ascending: false });
 
@@ -37,7 +37,7 @@ export default function Clients() {
     if (file) {
       const fileName = `${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage
-        .from("client-docs")
+        .from("client_pms")
         .upload(fileName, file);
 
       if (!uploadError) {
