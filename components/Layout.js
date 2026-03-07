@@ -1,52 +1,82 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 
-
-export default function Layout({ children }) {
+export default function Layout({ children, title = "Azur Hotel PMS" }) {
   const router = useRouter();
-  const { profile, signOut } = useAuth();
 
   const links = [
-    ["/", "Tableau"],
-    ["/clients", "Clients"],
-    ["/reservations", "Réservations"],
-    ["/documents", "Devis/Factures"],
-    ["/expenses", "Dépenses"],
+    { href: "/dashboard", label: "Dashboard" },
+    { href: "/clients", label: "Clients" },
+    { href: "/reservations", label: "Réservations" },
+    { href: "/expenses", label: "Dépenses" },
+    { href: "/invoices", label: "Factures" },
   ];
-  if (profile?.role === "admin") links.push(["/admin", "Admin"]);
 
   return (
-    <div className="container">
-      <div className="row" style={{alignItems:"center", justifyContent:"space-between"}}>
-        <div style={{display:"flex", gap:10, alignItems:"center"}}>
-          <div className="badge" style={{background:"#2563eb", color:"#fff"}}>A</div>
-          <div>
-            <div style={{fontWeight:900}}>Azur Hôtel PMS</div>
-            <div className="small">Next.js + Supabase</div>
-          </div>
-        </div>
-        <div className="small">
-          {profile ? (
-            <>
-              <span className="badge">{profile.role}</span>{" "}
-              {profile.username}{" "}
-              <button className="ghost" style={{marginLeft:10}} onClick={async()=>{ await signOut(); router.push("/login"); }}>
-                Déconnexion
-              </button>
-            </>
-          ) : null}
-        </div>
-      </div>
+    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Arial, sans-serif" }}>
+      <aside
+        style={{
+          width: "240px",
+          background: "#111827",
+          color: "white",
+          padding: "20px",
+        }}
+      >
+        <h2 style={{ marginTop: 0 }}>Azur Hotel PMS</h2>
+        <p style={{ fontSize: "13px", color: "#cbd5e1" }}>Panneau de gestion hôtel</p>
 
-      <nav>
-        {links.map(([href, label]) => (
-          <Link key={href} href={href} className={router.pathname === href ? "active" : ""}>
-            {label}
+        <nav style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "25px" }}>
+          {links.map((item) => {
+            const active = router.pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  textDecoration: "none",
+                  color: "white",
+                  background: active ? "#2563eb" : "transparent",
+                  border: active ? "none" : "1px solid #374151",
+                }}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div style={{ marginTop: "30px" }}>
+          <Link
+            href="/login"
+            style={{
+              display: "inline-block",
+              padding: "10px 12px",
+              borderRadius: "8px",
+              textDecoration: "none",
+              color: "white",
+              background: "#dc2626",
+            }}
+          >
+            Déconnexion
           </Link>
-        ))}
-      </nav>
+        </div>
+      </aside>
 
-      {children}
+      <main style={{ flex: 1, background: "#f3f4f6", padding: "30px" }}>
+        <div
+          style={{
+            background: "white",
+            borderRadius: "14px",
+            padding: "20px",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.06)",
+          }}
+        >
+          <h1 style={{ marginTop: 0 }}>{title}</h1>
+          {children}
+        </div>
+      </main>
     </div>
   );
 }
