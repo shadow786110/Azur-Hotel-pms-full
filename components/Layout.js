@@ -1,31 +1,34 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
+import { supabase } from "../lib/supabaseClient";
 
-export default function Layout({ children, title = "Azur Hotel PMS" }) {
+export default function Layout({ children, title = "Azur Hotel PMS", profile }) {
   const router = useRouter();
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
 
   const links = [
     { href: "/dashboard", label: "Dashboard" },
     { href: "/clients", label: "Clients" },
+    { href: "/rooms", label: "Chambres" },
     { href: "/reservations", label: "Réservations" },
     { href: "/expenses", label: "Dépenses" },
+    { href: "/quotes", label: "Devis" },
     { href: "/invoices", label: "Factures" },
   ];
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Arial, sans-serif" }}>
-      <aside
-        style={{
-          width: "240px",
-          background: "#111827",
-          color: "white",
-          padding: "20px",
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Azur Hotel PMS</h2>
-        <p style={{ fontSize: "13px", color: "#cbd5e1" }}>Panneau de gestion hôtel</p>
+      <aside style={{ width: 260, background: "#0f172a", color: "white", padding: 20 }}>
+        <h2>Azur Hotel PMS</h2>
+        <p style={{ fontSize: 13, color: "#cbd5e1" }}>
+          {profile ? `${profile.full_name || profile.email} • ${profile.role}` : "PMS Hôtel"}
+        </p>
 
-        <nav style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "25px" }}>
+        <nav style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 25 }}>
           {links.map((item) => {
             const active = router.pathname === item.href;
             return (
@@ -34,11 +37,11 @@ export default function Layout({ children, title = "Azur Hotel PMS" }) {
                 href={item.href}
                 style={{
                   padding: "10px 12px",
-                  borderRadius: "8px",
+                  borderRadius: 8,
                   textDecoration: "none",
                   color: "white",
                   background: active ? "#2563eb" : "transparent",
-                  border: active ? "none" : "1px solid #374151",
+                  border: active ? "none" : "1px solid #334155",
                 }}
               >
                 {item.label}
@@ -47,32 +50,24 @@ export default function Layout({ children, title = "Azur Hotel PMS" }) {
           })}
         </nav>
 
-        <div style={{ marginTop: "30px" }}>
-          <Link
-            href="/login"
-            style={{
-              display: "inline-block",
-              padding: "10px 12px",
-              borderRadius: "8px",
-              textDecoration: "none",
-              color: "white",
-              background: "#dc2626",
-            }}
-          >
-            Déconnexion
-          </Link>
-        </div>
-      </aside>
-
-      <main style={{ flex: 1, background: "#f3f4f6", padding: "30px" }}>
-        <div
+        <button
+          onClick={handleLogout}
           style={{
-            background: "white",
-            borderRadius: "14px",
-            padding: "20px",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.06)",
+            marginTop: 24,
+            padding: "10px 12px",
+            borderRadius: 8,
+            border: "none",
+            background: "#dc2626",
+            color: "white",
+            cursor: "pointer",
           }}
         >
+          Déconnexion
+        </button>
+      </aside>
+
+      <main style={{ flex: 1, background: "#f1f5f9", padding: 30 }}>
+        <div style={{ background: "white", borderRadius: 14, padding: 20 }}>
           <h1 style={{ marginTop: 0 }}>{title}</h1>
           {children}
         </div>
