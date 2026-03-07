@@ -29,25 +29,63 @@ export default function Clients() {
   }
 
   async function handleSubmit(e) {
-    e.preventDefault();
-    setLoading(true);
+  e.preventDefault();
+  setLoading(true);
 
-    let document_url = "";
+  let document_url = "";
 
+  try {
     if (file) {
       const fileName = `${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage
-        .from("client_pms")
+        .from("client-docs")
         .upload(fileName, file);
 
-      if (!uploadError) {
-        const { data } = supabase.storage
-          .from("client-docs")
-          .getPublicUrl(fileName);
-
-        document_url = data.publicUrl;
+      if (uploadError) {
+        alert("Erreur upload client: " + uploadError.message);
+        setLoading(false);
+        return;
       }
+
+      const { data } = supabase.storage
+        .from("client-docs")
+        .getPublicUrl(fileName);
+
+      document_url = data.publicUrl;
     }
+
+    const { data: inserted, error } = await supabase
+      .from("clients_pms")
+      .insert([
+        {
+          nom: form.nom,
+          telephone: form.telephone,
+          email: form.email,
+          adresse: form.adresse,
+          document_url,
+        },
+      ])
+      .select();
+
+    if (error) {
+      alert("Erreur SQL client: " + error.message);
+    } else {
+      alert("Client ajouté avec succès");
+      setForm({
+        nom: "",
+        telephone: "",
+        email: "",
+        adresse: "",
+      });
+      setFile(null);
+      fetchClients();
+    }
+  } catch (err) {
+    alert("Erreur générale client: " + err.message);
+  }
+
+  setLoading(false);
+}
 
     const { error } = await supabase.from("clients").insert([
       {
