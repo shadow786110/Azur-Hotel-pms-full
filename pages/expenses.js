@@ -29,25 +29,63 @@ export default function Expenses() {
   }
 
   async function handleSubmit(e) {
-    e.preventDefault();
-    setLoading(true);
+  e.preventDefault();
+  setLoading(true);
 
-    let justificatif_url = "";
+  let justificatif_url = "";
 
+  try {
     if (file) {
       const fileName = `${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage
-        .from("expense_pms")
+        .from("expense-files")
         .upload(fileName, file);
 
-      if (!uploadError) {
-        const { data } = supabase.storage
-          .from("expense-files")
-          .getPublicUrl(fileName);
-
-        justificatif_url = data.publicUrl;
+      if (uploadError) {
+        alert("Erreur upload dépense: " + uploadError.message);
+        setLoading(false);
+        return;
       }
+
+      const { data } = supabase.storage
+        .from("expense-files")
+        .getPublicUrl(fileName);
+
+      justificatif_url = data.publicUrl;
     }
+
+    const { data: inserted, error } = await supabase
+      .from("expenses_pms")
+      .insert([
+        {
+          titre: form.titre,
+          montant: Number(form.montant),
+          categorie: form.categorie,
+          note: form.note,
+          justificatif_url,
+        },
+      ])
+      .select();
+
+    if (error) {
+      alert("Erreur SQL dépense: " + error.message);
+    } else {
+      alert("Dépense ajoutée");
+      setForm({
+        titre: "",
+        montant: "",
+        categorie: "",
+        note: "",
+      });
+      setFile(null);
+      fetchExpenses();
+    }
+  } catch (err) {
+    alert("Erreur générale dépense: " + err.message);
+  }
+
+  setLoading(false);
+}
 
     const { error } = await supabase.from("expenses").insert([
       {
