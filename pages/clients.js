@@ -29,34 +29,33 @@ export default function Clients() {
   }
 
   async function handleSubmit(e) {
-  e.preventDefault();
-  setLoading(true);
+    e.preventDefault();
+    setLoading(true);
 
-  let document_url = "";
+    let document_url = "";
 
-  try {
-    if (file) {
-      const fileName = `${Date.now()}-${file.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from("client-docs")
-        .upload(fileName, file);
+    try {
+      if (file) {
+        const fileName = `${Date.now()}-${file.name}`;
 
-      if (uploadError) {
-        alert("Erreur upload client: " + uploadError.message);
-        setLoading(false);
-        return;
+        const { error: uploadError } = await supabase.storage
+          .from("client-docs")
+          .upload(fileName, file);
+
+        if (uploadError) {
+          alert("Erreur upload client: " + uploadError.message);
+          setLoading(false);
+          return;
+        }
+
+        const { data } = supabase.storage
+          .from("client-docs")
+          .getPublicUrl(fileName);
+
+        document_url = data.publicUrl;
       }
 
-      const { data } = supabase.storage
-        .from("client-docs")
-        .getPublicUrl(fileName);
-
-      document_url = data.publicUrl;
-    }
-
-    const { data: inserted, error } = await supabase
-      .from("clients_pms")
-      .insert([
+      const { error } = await supabase.from("clients_pms").insert([
         {
           nom: form.nom,
           telephone: form.telephone,
@@ -64,51 +63,25 @@ export default function Clients() {
           adresse: form.adresse,
           document_url,
         },
-      ])
-      .select();
+      ]);
 
-    if (error) {
-      alert("Erreur SQL client: " + error.message);
-    } else {
-      alert("Client ajouté avec succès");
-      setForm({
-        nom: "",
-        telephone: "",
-        email: "",
-        adresse: "",
-      });
-      setFile(null);
-      fetchClients();
-    }
-  } catch (err) {
-    alert("Erreur générale client: " + err.message);
-  }
+      if (error) {
+        alert("Erreur SQL client: " + error.message);
+      } else {
+        alert("Client ajouté avec succès");
 
-  setLoading(false);
-}
+        setForm({
+          nom: "",
+          telephone: "",
+          email: "",
+          adresse: "",
+        });
 
-    const { error } = await supabase.from("clients").insert([
-      {
-        nom: form.nom,
-        telephone: form.telephone,
-        email: form.email,
-        adresse: form.adresse,
-        document_url,
-      },
-    ]);
-
-    if (!error) {
-      setForm({
-        nom: "",
-        telephone: "",
-        email: "",
-        adresse: "",
-      });
-      setFile(null);
-      fetchClients();
-      alert("Client ajouté avec succès");
-    } else {
-      alert("Erreur ajout client");
+        setFile(null);
+        fetchClients();
+      }
+    } catch (err) {
+      alert("Erreur générale client: " + err.message);
     }
 
     setLoading(false);
@@ -119,34 +92,50 @@ export default function Clients() {
       <div style={{ display: "grid", gap: 30 }}>
         <div>
           <h2>Ajouter un client</h2>
-          <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, maxWidth: 500 }}>
+
+          <form
+            onSubmit={handleSubmit}
+            style={{ display: "grid", gap: 12, maxWidth: 500 }}
+          >
             <input
               type="text"
               placeholder="Nom"
               value={form.nom}
-              onChange={(e) => setForm({ ...form, nom: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, nom: e.target.value })
+              }
               required
             />
+
             <input
               type="text"
               placeholder="Téléphone"
               value={form.telephone}
-              onChange={(e) => setForm({ ...form, telephone: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, telephone: e.target.value })
+              }
             />
+
             <input
               type="email"
               placeholder="Email"
               value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, email: e.target.value })
+              }
             />
+
             <input
               type="text"
               placeholder="Adresse"
               value={form.adresse}
-              onChange={(e) => setForm({ ...form, adresse: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, adresse: e.target.value })
+              }
             />
 
             <label>Pièce d'identité / document</label>
+
             <input
               type="file"
               onChange={(e) => setFile(e.target.files[0])}
@@ -160,6 +149,7 @@ export default function Clients() {
 
         <div>
           <h2>Liste des clients</h2>
+
           <table
             style={{
               width: "100%",
@@ -169,21 +159,43 @@ export default function Clients() {
           >
             <thead>
               <tr>
-                <th style={{ border: "1px solid #ddd", padding: 10 }}>Nom</th>
-                <th style={{ border: "1px solid #ddd", padding: 10 }}>Téléphone</th>
-                <th style={{ border: "1px solid #ddd", padding: 10 }}>Email</th>
-                <th style={{ border: "1px solid #ddd", padding: 10 }}>Document</th>
+                <th style={{ border: "1px solid #ddd", padding: 10 }}>
+                  Nom
+                </th>
+                <th style={{ border: "1px solid #ddd", padding: 10 }}>
+                  Téléphone
+                </th>
+                <th style={{ border: "1px solid #ddd", padding: 10 }}>
+                  Email
+                </th>
+                <th style={{ border: "1px solid #ddd", padding: 10 }}>
+                  Document
+                </th>
               </tr>
             </thead>
+
             <tbody>
               {clients.map((client) => (
                 <tr key={client.id}>
-                  <td style={{ border: "1px solid #ddd", padding: 10 }}>{client.nom}</td>
-                  <td style={{ border: "1px solid #ddd", padding: 10 }}>{client.telephone}</td>
-                  <td style={{ border: "1px solid #ddd", padding: 10 }}>{client.email}</td>
+                  <td style={{ border: "1px solid #ddd", padding: 10 }}>
+                    {client.nom}
+                  </td>
+
+                  <td style={{ border: "1px solid #ddd", padding: 10 }}>
+                    {client.telephone}
+                  </td>
+
+                  <td style={{ border: "1px solid #ddd", padding: 10 }}>
+                    {client.email}
+                  </td>
+
                   <td style={{ border: "1px solid #ddd", padding: 10 }}>
                     {client.document_url ? (
-                      <a href={client.document_url} target="_blank" rel="noreferrer">
+                      <a
+                        href={client.document_url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
                         Voir
                       </a>
                     ) : (
