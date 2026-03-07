@@ -21,7 +21,7 @@ export default function Expenses() {
 
   async function fetchExpenses() {
     const { data, error } = await supabase
-      .from("expenses")
+      .from("expenses_pms")
       .select("*")
       .order("id", { ascending: false });
 
@@ -37,7 +37,7 @@ export default function Expenses() {
     if (file) {
       const fileName = `${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage
-        .from("expense-files")
+        .from("expense_pms")
         .upload(fileName, file);
 
       if (!uploadError) {
