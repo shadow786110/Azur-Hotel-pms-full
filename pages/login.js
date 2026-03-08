@@ -1,21 +1,45 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
+import { supabase } from "../lib/supabaseClient";
 
 export default function Login() {
   const router = useRouter();
-  const [pseudo, setPseudo] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function handleLogin(e) {
-    e.preventDefault();
+  useEffect(() => {
+    checkSession();
+  }, []);
 
-    if (pseudo === "admin" && password === "admin123") {
-      setMessage("Connexion réussie");
-      setTimeout(() => router.push("/dashboard"), 500);
-    } else {
-      setMessage("Identifiants invalides");
+  async function checkSession() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session) {
+      router.replace("/dashboard");
     }
+  }
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    setLoading(true);
+    setMessage("");
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      setMessage("Erreur connexion : " + error.message);
+      setLoading(false);
+      return;
+    }
+
+    router.replace("/dashboard");
   }
 
   return (
@@ -30,17 +54,17 @@ export default function Login() {
           boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
         }}
       >
-        <h1>Connexion</h1>
-        <p>Pseudo : admin | Mot de passe : admin123</p>
+        <h1>Connexion PMS</h1>
 
         <form onSubmit={handleLogin}>
           <div style={{ marginBottom: 12 }}>
             <input
-              type="text"
-              placeholder="Pseudo"
-              value={pseudo}
-              onChange={(e) => setPseudo(e.target.value)}
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               style={{ width: "100%", padding: 10 }}
+              required
             />
           </div>
 
@@ -51,16 +75,17 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               style={{ width: "100%", padding: 10 }}
+              required
             />
           </div>
 
-          <button type="submit" style={{ padding: "10px 16px", cursor: "pointer" }}>
-            Se connecter
+          <button type="submit" style={{ padding: "10px 16px", cursor: "pointer" }} disabled={loading}>
+            {loading ? "Connexion..." : "Se connecter"}
           </button>
         </form>
 
         {message && (
-          <p style={{ marginTop: 12, color: message.includes("réussie") ? "green" : "red" }}>
+          <p style={{ marginTop: 12, color: "red" }}>
             {message}
           </p>
         )}
