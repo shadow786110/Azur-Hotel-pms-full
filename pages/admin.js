@@ -8,5 +8,5 @@ export default function Admin() {
     router.replace("/dashboard");
   }, [router]);
 
-  return <p style={{ padding: 40 }}>Redirection...</p>;
+  return <div style={{ padding: 40 }}>Redirection...</div>;
 }
