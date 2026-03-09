@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { supabase } from "../lib/supabaseClient";
+import { buildInvoicePdf } from "../lib/pdfUtils";
 
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
@@ -27,9 +28,18 @@ export default function Invoices() {
 
   async function fetchAll() {
     const [{ data: invoicesData }, { data: clientsData }, { data: paymentsData }] = await Promise.all([
-      supabase.from("invoices_pms").select("*, clients_pms(id, nom)").order("id", { ascending: false }),
-      supabase.from("clients_pms").select("*").order("nom", { ascending: true }),
-      supabase.from("payments_pms").select("*").order("id", { ascending: false }),
+      supabase
+        .from("invoices_pms")
+        .select("*, clients_pms(id, nom)")
+        .order("id", { ascending: false }),
+      supabase
+        .from("clients_pms")
+        .select("*")
+        .order("nom", { ascending: true }),
+      supabase
+        .from("payments_pms")
+        .select("*")
+        .order("id", { ascending: false }),
     ]);
 
     setInvoices(invoicesData || []);
@@ -124,6 +134,65 @@ export default function Invoices() {
     }
 
     fetchAll();
+  }
+
+  async function generateInvoicePdf(invoice) {
+    try {
+      const blob = buildInvoicePdf({
+        invoice_number: invoice.invoice_number,
+        client_name: invoice.clients_pms?.nom || "-",
+        status: translateInvoiceStatus(invoice.status),
+        total_amount: invoice.total_amount,
+        paid_amount: invoice.paid_amount,
+      });
+
+      const fileName = `invoice-${invoice.invoice_number || invoice.id}-${Date.now()}.pdf`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("invoices-pdf")
+        .upload(fileName, blob, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+
+      if (uploadError) {
+        alert("Erreur upload PDF facture: " + uploadError.message);
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from("invoices_pms")
+        .update({ pdf_url: fileName })
+        .eq("id", invoice.id);
+
+      if (updateError) {
+        alert("Erreur enregistrement PDF: " + updateError.message);
+        return;
+      }
+
+      alert("PDF facture généré");
+      fetchAll();
+    } catch (err) {
+      alert("Erreur PDF facture: " + err.message);
+    }
+  }
+
+  async function viewPdf(path) {
+    if (!path) {
+      alert("Aucun PDF");
+      return;
+    }
+
+    const { data, error } = await supabase.storage
+      .from("invoices-pdf")
+      .createSignedUrl(path, 60);
+
+    if (error) {
+      alert("Erreur lecture PDF: " + error.message);
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank");
   }
 
   return (
@@ -237,6 +306,7 @@ export default function Invoices() {
                 <th style={th}>Montant</th>
                 <th style={th}>Payé</th>
                 <th style={th}>Statut</th>
+                <th style={th}>PDF</th>
                 <th style={th}>Actions</th>
               </tr>
             </thead>
@@ -248,6 +318,16 @@ export default function Invoices() {
                   <td style={td}>{invoice.total_amount}</td>
                   <td style={td}>{invoice.paid_amount}</td>
                   <td style={td}>{translateInvoiceStatus(invoice.status)}</td>
+                  <td style={td}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button onClick={() => generateInvoicePdf(invoice)}>Générer PDF</button>
+                      {invoice.pdf_url ? (
+                        <button onClick={() => viewPdf(invoice.pdf_url)}>Voir PDF</button>
+                      ) : (
+                        "Aucun"
+                      )}
+                    </div>
+                  </td>
                   <td style={td}>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button onClick={() => updateInvoiceStatus(invoice.id, "sent")}>Envoyée</button>
