@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { supabase } from "../lib/supabaseClient";
+import { buildQuotePdf } from "../lib/pdfUtils";
 
 export default function Quotes() {
   const [quotes, setQuotes] = useState([]);
@@ -18,8 +19,14 @@ export default function Quotes() {
 
   async function fetchAll() {
     const [{ data: quotesData }, { data: clientsData }] = await Promise.all([
-      supabase.from("quotes_pms").select("*, clients_pms(id, nom)").order("id", { ascending: false }),
-      supabase.from("clients_pms").select("*").order("nom", { ascending: true }),
+      supabase
+        .from("quotes_pms")
+        .select("*, clients_pms(id, nom)")
+        .order("id", { ascending: false }),
+      supabase
+        .from("clients_pms")
+        .select("*")
+        .order("nom", { ascending: true }),
     ]);
 
     setQuotes(quotesData || []);
@@ -65,6 +72,64 @@ export default function Quotes() {
     }
 
     fetchAll();
+  }
+
+  async function generateQuotePdf(quote) {
+    try {
+      const blob = buildQuotePdf({
+        quote_number: quote.quote_number,
+        client_name: quote.clients_pms?.nom || "-",
+        status: translateQuoteStatus(quote.status),
+        total_amount: quote.total_amount,
+      });
+
+      const fileName = `quote-${quote.quote_number || quote.id}-${Date.now()}.pdf`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("quotes-pdf")
+        .upload(fileName, blob, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+
+      if (uploadError) {
+        alert("Erreur upload PDF devis: " + uploadError.message);
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from("quotes_pms")
+        .update({ pdf_url: fileName })
+        .eq("id", quote.id);
+
+      if (updateError) {
+        alert("Erreur enregistrement PDF: " + updateError.message);
+        return;
+      }
+
+      alert("PDF devis généré");
+      fetchAll();
+    } catch (err) {
+      alert("Erreur PDF devis: " + err.message);
+    }
+  }
+
+  async function viewPdf(path) {
+    if (!path) {
+      alert("Aucun PDF");
+      return;
+    }
+
+    const { data, error } = await supabase.storage
+      .from("quotes-pdf")
+      .createSignedUrl(path, 60);
+
+    if (error) {
+      alert("Erreur lecture PDF: " + error.message);
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank");
   }
 
   return (
@@ -126,6 +191,7 @@ export default function Quotes() {
                 <th style={th}>Client</th>
                 <th style={th}>Montant</th>
                 <th style={th}>Statut</th>
+                <th style={th}>PDF</th>
                 <th style={th}>Actions</th>
               </tr>
             </thead>
@@ -136,6 +202,16 @@ export default function Quotes() {
                   <td style={td}>{quote.clients_pms?.nom || "-"}</td>
                   <td style={td}>{quote.total_amount}</td>
                   <td style={td}>{translateQuoteStatus(quote.status)}</td>
+                  <td style={td}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button onClick={() => generateQuotePdf(quote)}>Générer PDF</button>
+                      {quote.pdf_url ? (
+                        <button onClick={() => viewPdf(quote.pdf_url)}>Voir PDF</button>
+                      ) : (
+                        "Aucun"
+                      )}
+                    </div>
+                  </td>
                   <td style={td}>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button onClick={() => updateStatus(quote.id, "sent")}>Envoyé</button>
