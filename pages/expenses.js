@@ -11,7 +11,7 @@ export default function Expenses() {
     montant: "",
     categorie: "",
     note: "",
-    expense_date: "",
+    expense_date: ""
   });
 
   const [file, setFile] = useState(null);
@@ -21,12 +21,12 @@ export default function Expenses() {
   }, []);
 
   async function fetchExpenses() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("expenses_pms")
       .select("*")
       .order("id", { ascending: false });
 
-    if (!error) setExpenses(data || []);
+    setExpenses(data || []);
   }
 
   async function handleSubmit(e) {
@@ -59,8 +59,8 @@ export default function Expenses() {
           categorie: form.categorie,
           note: form.note,
           expense_date: form.expense_date || null,
-          justificatif_url,
-        },
+          justificatif_url
+        }
       ]);
 
       if (error) {
@@ -72,7 +72,7 @@ export default function Expenses() {
           montant: "",
           categorie: "",
           note: "",
-          expense_date: "",
+          expense_date: ""
         });
         setFile(null);
         fetchExpenses();
@@ -85,10 +85,7 @@ export default function Expenses() {
   }
 
   async function viewExpenseDoc(path) {
-    if (!path) {
-      alert("Aucun justificatif");
-      return;
-    }
+    if (!path) return;
 
     const { data, error } = await supabase.storage
       .from("expense-files-private")
@@ -104,93 +101,61 @@ export default function Expenses() {
 
   return (
     <Layout title="Dépenses">
-      <div style={{ display: "grid", gap: 30 }}>
-        <div>
-          <h2>Ajouter une dépense</h2>
-
-          <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, maxWidth: 620 }}>
-            <input
-              type="text"
-              placeholder="Titre"
-              value={form.titre}
-              onChange={(e) => setForm({ ...form, titre: e.target.value })}
-              required
-            />
-
-            <input
-              type="number"
-              placeholder="Montant"
-              value={form.montant}
-              onChange={(e) => setForm({ ...form, montant: e.target.value })}
-              required
-            />
-
-            <input
-              type="text"
-              placeholder="Catégorie"
-              value={form.categorie}
-              onChange={(e) => setForm({ ...form, categorie: e.target.value })}
-            />
-
-            <input
-              type="date"
-              value={form.expense_date}
-              onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
-            />
-
-            <textarea
-              placeholder="Note"
-              value={form.note}
-              onChange={(e) => setForm({ ...form, note: e.target.value })}
-            />
-
-            <label>Justificatif</label>
-            <input type="file" onChange={(e) => setFile(e.target.files[0])} />
-
-            <button type="submit" disabled={loading}>
+      <div className="grid grid-2">
+        <div className="card">
+          <h2 className="section-title">Ajouter une dépense</h2>
+          <form className="form-grid" onSubmit={handleSubmit}>
+            <input className="input" placeholder="Titre" value={form.titre} onChange={(e) => setForm({ ...form, titre: e.target.value })} required />
+            <input className="input" type="number" placeholder="Montant" value={form.montant} onChange={(e) => setForm({ ...form, montant: e.target.value })} required />
+            <input className="input" placeholder="Catégorie" value={form.categorie} onChange={(e) => setForm({ ...form, categorie: e.target.value })} />
+            <input className="input" type="date" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} />
+            <textarea className="textarea" placeholder="Note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+            <div>
+              <label className="label">Justificatif</label>
+              <input className="input" type="file" onChange={(e) => setFile(e.target.files[0])} />
+            </div>
+            <button className="btn" type="submit" disabled={loading}>
               {loading ? "Enregistrement..." : "Enregistrer"}
             </button>
           </form>
         </div>
 
-        <div>
-          <h2>Liste des dépenses</h2>
-
-          <table style={{ width: "100%", borderCollapse: "collapse", background: "white" }}>
-            <thead>
-              <tr>
-                <th style={th}>Titre</th>
-                <th style={th}>Montant</th>
-                <th style={th}>Catégorie</th>
-                <th style={th}>Date</th>
-                <th style={th}>Justificatif</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.map((expense) => (
-                <tr key={expense.id}>
-                  <td style={td}>{expense.titre}</td>
-                  <td style={td}>{expense.montant}</td>
-                  <td style={td}>{expense.categorie || "-"}</td>
-                  <td style={td}>{expense.expense_date || "-"}</td>
-                  <td style={td}>
-                    {expense.justificatif_url ? (
-                      <button onClick={() => viewExpenseDoc(expense.justificatif_url)}>
-                        Voir
-                      </button>
-                    ) : (
-                      "Aucun"
-                    )}
-                  </td>
+        <div className="card">
+          <h2 className="section-title">Liste des dépenses</h2>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Titre</th>
+                  <th>Montant</th>
+                  <th>Catégorie</th>
+                  <th>Date</th>
+                  <th>Justificatif</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {expenses.map((expense) => (
+                  <tr key={expense.id}>
+                    <td>{expense.titre}</td>
+                    <td>{expense.montant}</td>
+                    <td>{expense.categorie || "-"}</td>
+                    <td>{expense.expense_date || "-"}</td>
+                    <td>
+                      {expense.justificatif_url ? (
+                        <button className="btn btn-secondary" onClick={() => viewExpenseDoc(expense.justificatif_url)}>
+                          Voir
+                        </button>
+                      ) : (
+                        "Aucun"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </Layout>
   );
 }
-
-const th = { border: "1px solid #ddd", padding: 10, textAlign: "left" };
-const td = { border: "1px solid #ddd", padding: 10 };
