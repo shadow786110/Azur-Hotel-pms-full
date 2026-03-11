@@ -15,7 +15,7 @@ export default function Login() {
 
   async function checkSession() {
     const {
-      data: { session },
+      data: { session }
     } = await supabase.auth.getSession();
 
     if (session) {
@@ -30,7 +30,7 @@ export default function Login() {
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
-      password,
+      password
     });
 
     if (error) {
@@ -43,52 +43,37 @@ export default function Login() {
   }
 
   return (
-    <div style={{ padding: 40, fontFamily: "Arial, sans-serif" }}>
-      <div
-        style={{
-          maxWidth: 420,
-          margin: "40px auto",
-          background: "white",
-          padding: 24,
-          borderRadius: 12,
-          boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
-        }}
-      >
-        <h1>Connexion PMS</h1>
+    <div className="auth-shell">
+      <div className="auth-card">
+        <img className="auth-logo" src="/logo-azur-hotel.jpg" alt="Azur Hotel" />
+        <h1 className="auth-title">Azur Hotel PMS</h1>
+        <p className="auth-sub">Connexion sécurisée</p>
 
-        <form onSubmit={handleLogin}>
-          <div style={{ marginBottom: 12 }}>
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{ width: "100%", padding: 10 }}
-              required
-            />
-          </div>
+        <form onSubmit={handleLogin} className="form-grid">
+          <input
+            className="input"
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
 
-          <div style={{ marginBottom: 12 }}>
-            <input
-              type="password"
-              placeholder="Mot de passe"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{ width: "100%", padding: 10 }}
-              required
-            />
-          </div>
+          <input
+            className="input"
+            type="password"
+            placeholder="Mot de passe"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
 
-          <button type="submit" style={{ padding: "10px 16px", cursor: "pointer" }} disabled={loading}>
+          <button className="btn" type="submit" disabled={loading}>
             {loading ? "Connexion..." : "Se connecter"}
           </button>
         </form>
 
-        {message && (
-          <p style={{ marginTop: 12, color: "red" }}>
-            {message}
-          </p>
-        )}
+        {message && <p style={{ color: "#d92d20", marginTop: 14 }}>{message}</p>}
       </div>
     </div>
   );
