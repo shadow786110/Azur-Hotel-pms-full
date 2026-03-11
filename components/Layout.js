@@ -17,32 +17,33 @@ export default function Layout({ children, title = "Azur Hotel PMS", profile }) 
     { href: "/reservations", label: "Réservations" },
     { href: "/expenses", label: "Dépenses" },
     { href: "/quotes", label: "Devis" },
-    { href: "/invoices", label: "Factures" },
+    { href: "/invoices", label: "Factures" }
   ];
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Arial, sans-serif" }}>
-      <aside style={{ width: 260, background: "#0f172a", color: "white", padding: 20 }}>
-        <h2>Azur Hotel PMS</h2>
-        <p style={{ fontSize: 13, color: "#cbd5e1" }}>
-          {profile ? `${profile.full_name || profile.email} • ${profile.role}` : "PMS Hôtel"}
-        </p>
+    <div className="page-shell">
+      <aside className="sidebar">
+        <div className="brand-box">
+          <img src="/logo-azur-hotel.jpg" alt="Azur Hotel" />
+          <div>
+            <p className="brand-title">Azur Hotel</p>
+            <div className="brand-sub">PMS Professionnel</div>
+          </div>
+        </div>
 
-        <nav style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 25 }}>
+        <div className="user-pill">
+          <strong>{profile?.full_name || profile?.email || "Utilisateur"}</strong>
+          <span>{profile?.role || "PMS Hôtel"}</span>
+        </div>
+
+        <nav className="nav-menu">
           {links.map((item) => {
             const active = router.pathname === item.href;
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  textDecoration: "none",
-                  color: "white",
-                  background: active ? "#2563eb" : "transparent",
-                  border: active ? "none" : "1px solid #334155",
-                }}
+                className={`nav-link ${active ? "active" : ""}`}
               >
                 {item.label}
               </Link>
@@ -50,27 +51,20 @@ export default function Layout({ children, title = "Azur Hotel PMS", profile }) 
           })}
         </nav>
 
-        <button
-          onClick={handleLogout}
-          style={{
-            marginTop: 24,
-            padding: "10px 12px",
-            borderRadius: 8,
-            border: "none",
-            background: "#dc2626",
-            color: "white",
-            cursor: "pointer",
-          }}
-        >
+        <button className="logout-btn" onClick={handleLogout}>
           Déconnexion
         </button>
       </aside>
 
-      <main style={{ flex: 1, background: "#f1f5f9", padding: 30 }}>
-        <div style={{ background: "white", borderRadius: 14, padding: 20 }}>
-          <h1 style={{ marginTop: 0 }}>{title}</h1>
-          {children}
+      <main className="content">
+        <div className="topbar">
+          <div>
+            <h1 className="page-title">{title}</h1>
+            <div className="page-subtitle">Gestion complète Azur Hotel</div>
+          </div>
         </div>
+
+        {children}
       </main>
     </div>
   );
