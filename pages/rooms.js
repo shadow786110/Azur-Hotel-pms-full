@@ -10,7 +10,7 @@ export default function Rooms() {
     floor: "",
     capacity: 1,
     status: "available",
-    notes: "",
+    notes: ""
   });
 
   useEffect(() => {
@@ -18,12 +18,12 @@ export default function Rooms() {
   }, []);
 
   async function fetchRooms() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("rooms")
       .select("*")
       .order("room_number", { ascending: true });
 
-    if (!error) setRooms(data || []);
+    setRooms(data || []);
   }
 
   async function handleSubmit(e) {
@@ -36,8 +36,8 @@ export default function Rooms() {
         floor: form.floor,
         capacity: Number(form.capacity),
         status: form.status,
-        notes: form.notes,
-      },
+        notes: form.notes
+      }
     ]);
 
     if (error) {
@@ -52,115 +52,76 @@ export default function Rooms() {
       floor: "",
       capacity: 1,
       status: "available",
-      notes: "",
+      notes: ""
     });
     fetchRooms();
   }
 
   async function updateRoomStatus(id, status) {
-    const { error } = await supabase
-      .from("rooms")
-      .update({ status })
-      .eq("id", id);
-
+    const { error } = await supabase.from("rooms").update({ status }).eq("id", id);
     if (error) {
       alert("Erreur statut: " + error.message);
       return;
     }
-
     fetchRooms();
   }
 
   return (
     <Layout title="Chambres">
-      <div style={{ display: "grid", gap: 30 }}>
-        <div>
-          <h2>Ajouter une chambre</h2>
-
-          <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, maxWidth: 520 }}>
-            <input
-              type="text"
-              placeholder="Numéro chambre"
-              value={form.room_number}
-              onChange={(e) => setForm({ ...form, room_number: e.target.value })}
-              required
-            />
-
-            <input
-              type="text"
-              placeholder="Type (Single, Double, Suite...)"
-              value={form.room_type}
-              onChange={(e) => setForm({ ...form, room_type: e.target.value })}
-            />
-
-            <input
-              type="text"
-              placeholder="Étage"
-              value={form.floor}
-              onChange={(e) => setForm({ ...form, floor: e.target.value })}
-            />
-
-            <input
-              type="number"
-              placeholder="Capacité"
-              value={form.capacity}
-              onChange={(e) => setForm({ ...form, capacity: e.target.value })}
-            />
-
-            <select
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
-            >
+      <div className="grid grid-2">
+        <div className="card">
+          <h2 className="section-title">Ajouter une chambre</h2>
+          <form className="form-grid" onSubmit={handleSubmit}>
+            <input className="input" placeholder="Numéro chambre" value={form.room_number} onChange={(e) => setForm({ ...form, room_number: e.target.value })} required />
+            <input className="input" placeholder="Type" value={form.room_type} onChange={(e) => setForm({ ...form, room_type: e.target.value })} />
+            <input className="input" placeholder="Étage" value={form.floor} onChange={(e) => setForm({ ...form, floor: e.target.value })} />
+            <input className="input" type="number" placeholder="Capacité" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} />
+            <select className="select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
               <option value="available">Libre</option>
               <option value="occupied">Occupée</option>
               <option value="dirty">Sale</option>
               <option value="maintenance">Maintenance</option>
               <option value="blocked">Bloquée</option>
             </select>
-
-            <textarea
-              placeholder="Notes"
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            />
-
-            <button type="submit">Enregistrer</button>
+            <textarea className="textarea" placeholder="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            <button className="btn" type="submit">Enregistrer</button>
           </form>
         </div>
 
-        <div>
-          <h2>Liste des chambres</h2>
-
-          <table style={{ width: "100%", borderCollapse: "collapse", background: "white" }}>
-            <thead>
-              <tr>
-                <th style={th}>N°</th>
-                <th style={th}>Type</th>
-                <th style={th}>Étage</th>
-                <th style={th}>Capacité</th>
-                <th style={th}>Statut</th>
-                <th style={th}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rooms.map((room) => (
-                <tr key={room.id}>
-                  <td style={td}>{room.room_number}</td>
-                  <td style={td}>{room.room_type}</td>
-                  <td style={td}>{room.floor}</td>
-                  <td style={td}>{room.capacity}</td>
-                  <td style={td}>{translateRoomStatus(room.status)}</td>
-                  <td style={td}>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <button onClick={() => updateRoomStatus(room.id, "available")}>Libre</button>
-                      <button onClick={() => updateRoomStatus(room.id, "dirty")}>Sale</button>
-                      <button onClick={() => updateRoomStatus(room.id, "maintenance")}>Maintenance</button>
-                    </div>
-                  </td>
+        <div className="card">
+          <h2 className="section-title">Liste des chambres</h2>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>N°</th>
+                  <th>Type</th>
+                  <th>Étage</th>
+                  <th>Capacité</th>
+                  <th>Statut</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rooms.map((room) => (
+                  <tr key={room.id}>
+                    <td>{room.room_number}</td>
+                    <td>{room.room_type}</td>
+                    <td>{room.floor}</td>
+                    <td>{room.capacity}</td>
+                    <td>{translateRoomStatus(room.status)}</td>
+                    <td>
+                      <div className="btn-row">
+                        <button className="btn btn-secondary" onClick={() => updateRoomStatus(room.id, "available")}>Libre</button>
+                        <button className="btn btn-warning" onClick={() => updateRoomStatus(room.id, "dirty")}>Sale</button>
+                        <button className="btn btn-danger" onClick={() => updateRoomStatus(room.id, "maintenance")}>Maintenance</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </Layout>
@@ -175,6 +136,3 @@ function translateRoomStatus(status) {
   if (status === "blocked") return "Bloquée";
   return status;
 }
-
-const th = { border: "1px solid #ddd", padding: 10, textAlign: "left" };
-const td = { border: "1px solid #ddd", padding: 10 };
