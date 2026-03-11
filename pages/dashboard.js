@@ -13,9 +13,8 @@ export default function Dashboard() {
     occupiedRooms: 0,
     dirtyRooms: 0,
     reservations: 0,
-    checkedIn: 0,
-    checkedOut: 0,
     expenses: 0,
+    invoices: 0
   });
 
   useEffect(() => {
@@ -24,20 +23,18 @@ export default function Dashboard() {
 
   async function loadData() {
     const {
-      data: { session },
+      data: { session }
     } = await supabase.auth.getSession();
 
     if (!session) {
-      router.push("/login");
+      router.replace("/login");
       return;
     }
-
-    const userId = session.user.id;
 
     const { data: profileData } = await supabase
       .from("profiles")
       .select("*")
-      .eq("id", userId)
+      .eq("id", session.user.id)
       .single();
 
     setProfile(profileData || null);
@@ -46,16 +43,14 @@ export default function Dashboard() {
       { count: clients },
       { data: roomsData },
       { count: reservations },
-      { count: checkedIn },
-      { count: checkedOut },
       { count: expenses },
+      { count: invoices }
     ] = await Promise.all([
       supabase.from("clients_pms").select("*", { count: "exact", head: true }),
       supabase.from("rooms").select("*"),
       supabase.from("reservations_pms").select("*", { count: "exact", head: true }),
-      supabase.from("reservations_pms").select("*", { count: "exact", head: true }).eq("status", "checked_in"),
-      supabase.from("reservations_pms").select("*", { count: "exact", head: true }).eq("status", "checked_out"),
       supabase.from("expenses_pms").select("*", { count: "exact", head: true }),
+      supabase.from("invoices_pms").select("*", { count: "exact", head: true })
     ]);
 
     const rooms = roomsData || [];
@@ -67,9 +62,8 @@ export default function Dashboard() {
       occupiedRooms: rooms.filter((r) => r.status === "occupied").length,
       dirtyRooms: rooms.filter((r) => r.status === "dirty").length,
       reservations: reservations || 0,
-      checkedIn: checkedIn || 0,
-      checkedOut: checkedOut || 0,
       expenses: expenses || 0,
+      invoices: invoices || 0
     });
   }
 
@@ -80,32 +74,17 @@ export default function Dashboard() {
     { title: "Chambres occupées", value: stats.occupiedRooms },
     { title: "Chambres sales", value: stats.dirtyRooms },
     { title: "Réservations", value: stats.reservations },
-    { title: "Check-in", value: stats.checkedIn },
-    { title: "Check-out", value: stats.checkedOut },
     { title: "Dépenses", value: stats.expenses },
+    { title: "Factures", value: stats.invoices }
   ];
 
   return (
     <Layout title="Dashboard" profile={profile}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: 16,
-        }}
-      >
+      <div className="grid grid-4">
         {cards.map((card) => (
-          <div
-            key={card.title}
-            style={{
-              background: "#eff6ff",
-              border: "1px solid #bfdbfe",
-              borderRadius: 12,
-              padding: 18,
-            }}
-          >
-            <h3 style={{ margin: 0, fontSize: 16 }}>{card.title}</h3>
-            <p style={{ margin: "10px 0 0", fontSize: 28, fontWeight: "bold" }}>{card.value}</p>
+          <div className="stat-card" key={card.title}>
+            <div className="label">{card.title}</div>
+            <div className="value">{card.value}</div>
           </div>
         ))}
       </div>
