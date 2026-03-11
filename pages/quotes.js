@@ -10,7 +10,7 @@ export default function Quotes() {
     quote_number: "",
     client_id: "",
     total_amount: "",
-    status: "draft",
+    status: "draft"
   });
 
   useEffect(() => {
@@ -19,14 +19,8 @@ export default function Quotes() {
 
   async function fetchAll() {
     const [{ data: quotesData }, { data: clientsData }] = await Promise.all([
-      supabase
-        .from("quotes_pms")
-        .select("*, clients_pms(id, nom)")
-        .order("id", { ascending: false }),
-      supabase
-        .from("clients_pms")
-        .select("*")
-        .order("nom", { ascending: true }),
+      supabase.from("quotes_pms").select("*, clients_pms(id, nom)").order("id", { ascending: false }),
+      supabase.from("clients_pms").select("*").order("nom", { ascending: true })
     ]);
 
     setQuotes(quotesData || []);
@@ -41,8 +35,8 @@ export default function Quotes() {
         quote_number: form.quote_number,
         client_id: Number(form.client_id),
         total_amount: Number(form.total_amount || 0),
-        status: form.status,
-      },
+        status: form.status
+      }
     ]);
 
     if (error) {
@@ -55,22 +49,17 @@ export default function Quotes() {
       quote_number: "",
       client_id: "",
       total_amount: "",
-      status: "draft",
+      status: "draft"
     });
     fetchAll();
   }
 
   async function updateStatus(id, status) {
-    const { error } = await supabase
-      .from("quotes_pms")
-      .update({ status })
-      .eq("id", id);
-
+    const { error } = await supabase.from("quotes_pms").update({ status }).eq("id", id);
     if (error) {
       alert("Erreur statut devis: " + error.message);
       return;
     }
-
     fetchAll();
   }
 
@@ -80,7 +69,7 @@ export default function Quotes() {
         quote_number: quote.quote_number,
         client_name: quote.clients_pms?.nom || "-",
         status: translateQuoteStatus(quote.status),
-        total_amount: quote.total_amount,
+        total_amount: quote.total_amount
       });
 
       const fileName = `quote-${quote.quote_number || quote.id}-${Date.now()}.pdf`;
@@ -89,7 +78,7 @@ export default function Quotes() {
         .from("quotes-pdf")
         .upload(fileName, blob, {
           contentType: "application/pdf",
-          upsert: true,
+          upsert: true
         });
 
       if (uploadError) {
@@ -115,10 +104,7 @@ export default function Quotes() {
   }
 
   async function viewPdf(path) {
-    if (!path) {
-      alert("Aucun PDF");
-      return;
-    }
+    if (!path) return;
 
     const { data, error } = await supabase.storage
       .from("quotes-pdf")
@@ -134,95 +120,72 @@ export default function Quotes() {
 
   return (
     <Layout title="Devis">
-      <div style={{ display: "grid", gap: 30 }}>
-        <div>
-          <h2>Nouveau devis</h2>
+      <div className="grid grid-2">
+        <div className="card">
+          <h2 className="section-title">Nouveau devis</h2>
 
-          <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, maxWidth: 620 }}>
-            <input
-              type="text"
-              placeholder="Numéro devis"
-              value={form.quote_number}
-              onChange={(e) => setForm({ ...form, quote_number: e.target.value })}
-              required
-            />
-
-            <select
-              value={form.client_id}
-              onChange={(e) => setForm({ ...form, client_id: e.target.value })}
-              required
-            >
+          <form className="form-grid" onSubmit={handleSubmit}>
+            <input className="input" placeholder="Numéro devis" value={form.quote_number} onChange={(e) => setForm({ ...form, quote_number: e.target.value })} required />
+            <select className="select" value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} required>
               <option value="">Choisir un client</option>
               {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.nom}
-                </option>
+                <option key={client.id} value={client.id}>{client.nom}</option>
               ))}
             </select>
-
-            <input
-              type="number"
-              placeholder="Montant total"
-              value={form.total_amount}
-              onChange={(e) => setForm({ ...form, total_amount: e.target.value })}
-            />
-
-            <select
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
-            >
+            <input className="input" type="number" placeholder="Montant total" value={form.total_amount} onChange={(e) => setForm({ ...form, total_amount: e.target.value })} />
+            <select className="select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
               <option value="draft">Brouillon</option>
               <option value="sent">Envoyé</option>
               <option value="accepted">Accepté</option>
               <option value="refused">Refusé</option>
             </select>
-
-            <button type="submit">Enregistrer</button>
+            <button className="btn" type="submit">Enregistrer</button>
           </form>
         </div>
 
-        <div>
-          <h2>Liste des devis</h2>
-
-          <table style={{ width: "100%", borderCollapse: "collapse", background: "white" }}>
-            <thead>
-              <tr>
-                <th style={th}>N° devis</th>
-                <th style={th}>Client</th>
-                <th style={th}>Montant</th>
-                <th style={th}>Statut</th>
-                <th style={th}>PDF</th>
-                <th style={th}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {quotes.map((quote) => (
-                <tr key={quote.id}>
-                  <td style={td}>{quote.quote_number}</td>
-                  <td style={td}>{quote.clients_pms?.nom || "-"}</td>
-                  <td style={td}>{quote.total_amount}</td>
-                  <td style={td}>{translateQuoteStatus(quote.status)}</td>
-                  <td style={td}>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <button onClick={() => generateQuotePdf(quote)}>Générer PDF</button>
-                      {quote.pdf_url ? (
-                        <button onClick={() => viewPdf(quote.pdf_url)}>Voir PDF</button>
-                      ) : (
-                        "Aucun"
-                      )}
-                    </div>
-                  </td>
-                  <td style={td}>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <button onClick={() => updateStatus(quote.id, "sent")}>Envoyé</button>
-                      <button onClick={() => updateStatus(quote.id, "accepted")}>Accepté</button>
-                      <button onClick={() => updateStatus(quote.id, "refused")}>Refusé</button>
-                    </div>
-                  </td>
+        <div className="card">
+          <h2 className="section-title">Liste des devis</h2>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>N° devis</th>
+                  <th>Client</th>
+                  <th>Montant</th>
+                  <th>Statut</th>
+                  <th>PDF</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {quotes.map((quote) => (
+                  <tr key={quote.id}>
+                    <td>{quote.quote_number}</td>
+                    <td>{quote.clients_pms?.nom || "-"}</td>
+                    <td>{quote.total_amount}</td>
+                    <td>{translateQuoteStatus(quote.status)}</td>
+                    <td>
+                      <div className="btn-row">
+                        <button className="btn btn-secondary" onClick={() => generateQuotePdf(quote)}>Générer PDF</button>
+                        {quote.pdf_url ? (
+                          <button className="btn btn-success" onClick={() => viewPdf(quote.pdf_url)}>Voir PDF</button>
+                        ) : (
+                          "Aucun"
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="btn-row">
+                        <button className="btn btn-secondary" onClick={() => updateStatus(quote.id, "sent")}>Envoyé</button>
+                        <button className="btn btn-success" onClick={() => updateStatus(quote.id, "accepted")}>Accepté</button>
+                        <button className="btn btn-danger" onClick={() => updateStatus(quote.id, "refused")}>Refusé</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </Layout>
@@ -236,6 +199,3 @@ function translateQuoteStatus(status) {
   if (status === "refused") return "Refusé";
   return status;
 }
-
-const th = { border: "1px solid #ddd", padding: 10, textAlign: "left" };
-const td = { border: "1px solid #ddd", padding: 10 };
