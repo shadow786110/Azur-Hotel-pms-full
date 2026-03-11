@@ -5,7 +5,6 @@ import { supabase } from "../lib/supabaseClient";
 export default function Clients() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [viewingUrl, setViewingUrl] = useState("");
 
   const [form, setForm] = useState({
     code: "",
@@ -13,7 +12,7 @@ export default function Clients() {
     telephone: "",
     email: "",
     adresse: "",
-    note: "",
+    note: ""
   });
 
   const [file, setFile] = useState(null);
@@ -23,12 +22,12 @@ export default function Clients() {
   }, []);
 
   async function fetchClients() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("clients_pms")
       .select("*")
       .order("id", { ascending: false });
 
-    if (!error) setClients(data || []);
+    setClients(data || []);
   }
 
   async function handleSubmit(e) {
@@ -62,8 +61,8 @@ export default function Clients() {
           email: form.email,
           adresse: form.adresse,
           note: form.note,
-          piece_identite_url,
-        },
+          piece_identite_url
+        }
       ]);
 
       if (error) {
@@ -76,7 +75,7 @@ export default function Clients() {
           telephone: "",
           email: "",
           adresse: "",
-          note: "",
+          note: ""
         });
         setFile(null);
         fetchClients();
@@ -89,10 +88,7 @@ export default function Clients() {
   }
 
   async function viewPrivateDoc(path) {
-    if (!path) {
-      alert("Aucun document");
-      return;
-    }
+    if (!path) return;
 
     const { data, error } = await supabase.storage
       .from("client-docs-private")
@@ -103,115 +99,67 @@ export default function Clients() {
       return;
     }
 
-    setViewingUrl(data.signedUrl);
     window.open(data.signedUrl, "_blank");
   }
 
   return (
     <Layout title="Clients">
-      <div style={{ display: "grid", gap: 30 }}>
-        <div>
-          <h2>Ajouter un client</h2>
-
-          <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, maxWidth: 620 }}>
-            <input
-              type="text"
-              placeholder="Code client"
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-            />
-
-            <input
-              type="text"
-              placeholder="Nom complet"
-              value={form.nom}
-              onChange={(e) => setForm({ ...form, nom: e.target.value })}
-              required
-            />
-
-            <input
-              type="text"
-              placeholder="Téléphone"
-              value={form.telephone}
-              onChange={(e) => setForm({ ...form, telephone: e.target.value })}
-            />
-
-            <input
-              type="email"
-              placeholder="Email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-            />
-
-            <input
-              type="text"
-              placeholder="Adresse"
-              value={form.adresse}
-              onChange={(e) => setForm({ ...form, adresse: e.target.value })}
-            />
-
-            <textarea
-              placeholder="Note interne"
-              value={form.note}
-              onChange={(e) => setForm({ ...form, note: e.target.value })}
-            />
-
-            <label>Pièce d’identité / passeport / CIN</label>
-            <input
-              type="file"
-              onChange={(e) => setFile(e.target.files[0])}
-            />
-
-            <button type="submit" disabled={loading}>
+      <div className="grid grid-2">
+        <div className="card">
+          <h2 className="section-title">Ajouter un client</h2>
+          <form className="form-grid" onSubmit={handleSubmit}>
+            <input className="input" placeholder="Code client" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+            <input className="input" placeholder="Nom complet" value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} required />
+            <input className="input" placeholder="Téléphone" value={form.telephone} onChange={(e) => setForm({ ...form, telephone: e.target.value })} />
+            <input className="input" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <input className="input" placeholder="Adresse" value={form.adresse} onChange={(e) => setForm({ ...form, adresse: e.target.value })} />
+            <textarea className="textarea" placeholder="Note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+            <div>
+              <label className="label">Pièce d'identité</label>
+              <input className="input" type="file" onChange={(e) => setFile(e.target.files[0])} />
+            </div>
+            <button className="btn" type="submit" disabled={loading}>
               {loading ? "Enregistrement..." : "Enregistrer le client"}
             </button>
           </form>
         </div>
 
-        <div>
-          <h2>Liste des clients</h2>
-
-          <table style={{ width: "100%", borderCollapse: "collapse", background: "white" }}>
-            <thead>
-              <tr>
-                <th style={th}>Code</th>
-                <th style={th}>Nom</th>
-                <th style={th}>Téléphone</th>
-                <th style={th}>Email</th>
-                <th style={th}>Document</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clients.map((client) => (
-                <tr key={client.id}>
-                  <td style={td}>{client.code || "-"}</td>
-                  <td style={td}>{client.nom}</td>
-                  <td style={td}>{client.telephone || "-"}</td>
-                  <td style={td}>{client.email || "-"}</td>
-                  <td style={td}>
-                    {client.piece_identite_url ? (
-                      <button onClick={() => viewPrivateDoc(client.piece_identite_url)}>
-                        Voir document
-                      </button>
-                    ) : (
-                      "Aucun"
-                    )}
-                  </td>
+        <div className="card">
+          <h2 className="section-title">Liste des clients</h2>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Nom</th>
+                  <th>Téléphone</th>
+                  <th>Email</th>
+                  <th>Document</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {viewingUrl && (
-          <div>
-            <p>Lien temporaire créé.</p>
+              </thead>
+              <tbody>
+                {clients.map((client) => (
+                  <tr key={client.id}>
+                    <td>{client.code || "-"}</td>
+                    <td>{client.nom}</td>
+                    <td>{client.telephone || "-"}</td>
+                    <td>{client.email || "-"}</td>
+                    <td>
+                      {client.piece_identite_url ? (
+                        <button className="btn btn-secondary" onClick={() => viewPrivateDoc(client.piece_identite_url)}>
+                          Voir document
+                        </button>
+                      ) : (
+                        "Aucun"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
+        </div>
       </div>
     </Layout>
   );
 }
-
-const th = { border: "1px solid #ddd", padding: 10, textAlign: "left" };
-const td = { border: "1px solid #ddd", padding: 10 };
