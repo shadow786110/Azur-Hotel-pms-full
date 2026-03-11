@@ -12,14 +12,14 @@ export default function Invoices() {
     client_id: "",
     total_amount: "",
     paid_amount: "",
-    status: "draft",
+    status: "draft"
   });
 
   const [paymentForm, setPaymentForm] = useState({
     invoice_id: "",
     amount: "",
     method: "",
-    reference: "",
+    reference: ""
   });
 
   useEffect(() => {
@@ -28,18 +28,9 @@ export default function Invoices() {
 
   async function fetchAll() {
     const [{ data: invoicesData }, { data: clientsData }, { data: paymentsData }] = await Promise.all([
-      supabase
-        .from("invoices_pms")
-        .select("*, clients_pms(id, nom)")
-        .order("id", { ascending: false }),
-      supabase
-        .from("clients_pms")
-        .select("*")
-        .order("nom", { ascending: true }),
-      supabase
-        .from("payments_pms")
-        .select("*")
-        .order("id", { ascending: false }),
+      supabase.from("invoices_pms").select("*, clients_pms(id, nom)").order("id", { ascending: false }),
+      supabase.from("clients_pms").select("*").order("nom", { ascending: true }),
+      supabase.from("payments_pms").select("*").order("id", { ascending: false })
     ]);
 
     setInvoices(invoicesData || []);
@@ -56,8 +47,8 @@ export default function Invoices() {
         client_id: Number(form.client_id),
         total_amount: Number(form.total_amount || 0),
         paid_amount: Number(form.paid_amount || 0),
-        status: form.status,
-      },
+        status: form.status
+      }
     ]);
 
     if (error) {
@@ -71,7 +62,7 @@ export default function Invoices() {
       client_id: "",
       total_amount: "",
       paid_amount: "",
-      status: "draft",
+      status: "draft"
     });
     fetchAll();
   }
@@ -87,8 +78,8 @@ export default function Invoices() {
         invoice_id: invoiceId,
         amount,
         method: paymentForm.method,
-        reference: paymentForm.reference,
-      },
+        reference: paymentForm.reference
+      }
     ]);
 
     if (error) {
@@ -104,35 +95,27 @@ export default function Invoices() {
     if (newPaid <= 0) status = "draft";
     if (newPaid >= total) status = "paid";
 
-    await supabase
-      .from("invoices_pms")
-      .update({
-        paid_amount: newPaid,
-        status,
-      })
-      .eq("id", invoiceId);
+    await supabase.from("invoices_pms").update({
+      paid_amount: newPaid,
+      status
+    }).eq("id", invoiceId);
 
     alert("Paiement enregistré");
     setPaymentForm({
       invoice_id: "",
       amount: "",
       method: "",
-      reference: "",
+      reference: ""
     });
     fetchAll();
   }
 
   async function updateInvoiceStatus(id, status) {
-    const { error } = await supabase
-      .from("invoices_pms")
-      .update({ status })
-      .eq("id", id);
-
+    const { error } = await supabase.from("invoices_pms").update({ status }).eq("id", id);
     if (error) {
       alert("Erreur statut facture: " + error.message);
       return;
     }
-
     fetchAll();
   }
 
@@ -143,7 +126,7 @@ export default function Invoices() {
         client_name: invoice.clients_pms?.nom || "-",
         status: translateInvoiceStatus(invoice.status),
         total_amount: invoice.total_amount,
-        paid_amount: invoice.paid_amount,
+        paid_amount: invoice.paid_amount
       });
 
       const fileName = `invoice-${invoice.invoice_number || invoice.id}-${Date.now()}.pdf`;
@@ -152,7 +135,7 @@ export default function Invoices() {
         .from("invoices-pdf")
         .upload(fileName, blob, {
           contentType: "application/pdf",
-          upsert: true,
+          upsert: true
         });
 
       if (uploadError) {
@@ -178,10 +161,7 @@ export default function Invoices() {
   }
 
   async function viewPdf(path) {
-    if (!path) {
-      alert("Aucun PDF");
-      return;
-    }
+    if (!path) return;
 
     const { data, error } = await supabase.storage
       .from("invoices-pdf")
@@ -197,172 +177,123 @@ export default function Invoices() {
 
   return (
     <Layout title="Factures">
-      <div style={{ display: "grid", gap: 30 }}>
-        <div>
-          <h2>Nouvelle facture</h2>
+      <div className="grid">
+        <div className="grid grid-2">
+          <div className="card">
+            <h2 className="section-title">Nouvelle facture</h2>
+            <form className="form-grid" onSubmit={handleInvoiceSubmit}>
+              <input className="input" placeholder="Numéro facture" value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} required />
+              <select className="select" value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} required>
+                <option value="">Choisir un client</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>{client.nom}</option>
+                ))}
+              </select>
+              <input className="input" type="number" placeholder="Montant total" value={form.total_amount} onChange={(e) => setForm({ ...form, total_amount: e.target.value })} />
+              <input className="input" type="number" placeholder="Montant déjà payé" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} />
+              <select className="select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                <option value="draft">Brouillon</option>
+                <option value="sent">Envoyée</option>
+                <option value="partial">Partiellement payée</option>
+                <option value="paid">Payée</option>
+                <option value="cancelled">Annulée</option>
+              </select>
+              <button className="btn" type="submit">Enregistrer facture</button>
+            </form>
+          </div>
 
-          <form onSubmit={handleInvoiceSubmit} style={{ display: "grid", gap: 12, maxWidth: 620 }}>
-            <input
-              type="text"
-              placeholder="Numéro facture"
-              value={form.invoice_number}
-              onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
-              required
-            />
-
-            <select
-              value={form.client_id}
-              onChange={(e) => setForm({ ...form, client_id: e.target.value })}
-              required
-            >
-              <option value="">Choisir un client</option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.nom}
-                </option>
-              ))}
-            </select>
-
-            <input
-              type="number"
-              placeholder="Montant total"
-              value={form.total_amount}
-              onChange={(e) => setForm({ ...form, total_amount: e.target.value })}
-            />
-
-            <input
-              type="number"
-              placeholder="Montant déjà payé"
-              value={form.paid_amount}
-              onChange={(e) => setForm({ ...form, paid_amount: e.target.value })}
-            />
-
-            <select
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
-            >
-              <option value="draft">Brouillon</option>
-              <option value="sent">Envoyée</option>
-              <option value="partial">Partiellement payée</option>
-              <option value="paid">Payée</option>
-              <option value="cancelled">Annulée</option>
-            </select>
-
-            <button type="submit">Enregistrer facture</button>
-          </form>
+          <div className="card">
+            <h2 className="section-title">Enregistrer un paiement</h2>
+            <form className="form-grid" onSubmit={handlePaymentSubmit}>
+              <select className="select" value={paymentForm.invoice_id} onChange={(e) => setPaymentForm({ ...paymentForm, invoice_id: e.target.value })} required>
+                <option value="">Choisir une facture</option>
+                {invoices.map((invoice) => (
+                  <option key={invoice.id} value={invoice.id}>
+                    {invoice.invoice_number} - {invoice.clients_pms?.nom || "-"}
+                  </option>
+                ))}
+              </select>
+              <input className="input" type="number" placeholder="Montant payé" value={paymentForm.amount} onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })} required />
+              <input className="input" placeholder="Méthode" value={paymentForm.method} onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })} />
+              <input className="input" placeholder="Référence" value={paymentForm.reference} onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })} />
+              <button className="btn" type="submit">Enregistrer paiement</button>
+            </form>
+          </div>
         </div>
 
-        <div>
-          <h2>Enregistrer un paiement</h2>
-
-          <form onSubmit={handlePaymentSubmit} style={{ display: "grid", gap: 12, maxWidth: 620 }}>
-            <select
-              value={paymentForm.invoice_id}
-              onChange={(e) => setPaymentForm({ ...paymentForm, invoice_id: e.target.value })}
-              required
-            >
-              <option value="">Choisir une facture</option>
-              {invoices.map((invoice) => (
-                <option key={invoice.id} value={invoice.id}>
-                  {invoice.invoice_number} - {invoice.clients_pms?.nom || "-"}
-                </option>
-              ))}
-            </select>
-
-            <input
-              type="number"
-              placeholder="Montant payé"
-              value={paymentForm.amount}
-              onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
-              required
-            />
-
-            <input
-              type="text"
-              placeholder="Méthode (cash, virement, carte...)"
-              value={paymentForm.method}
-              onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })}
-            />
-
-            <input
-              type="text"
-              placeholder="Référence"
-              value={paymentForm.reference}
-              onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
-            />
-
-            <button type="submit">Enregistrer paiement</button>
-          </form>
-        </div>
-
-        <div>
-          <h2>Liste des factures</h2>
-
-          <table style={{ width: "100%", borderCollapse: "collapse", background: "white" }}>
-            <thead>
-              <tr>
-                <th style={th}>N° facture</th>
-                <th style={th}>Client</th>
-                <th style={th}>Montant</th>
-                <th style={th}>Payé</th>
-                <th style={th}>Statut</th>
-                <th style={th}>PDF</th>
-                <th style={th}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.map((invoice) => (
-                <tr key={invoice.id}>
-                  <td style={td}>{invoice.invoice_number}</td>
-                  <td style={td}>{invoice.clients_pms?.nom || "-"}</td>
-                  <td style={td}>{invoice.total_amount}</td>
-                  <td style={td}>{invoice.paid_amount}</td>
-                  <td style={td}>{translateInvoiceStatus(invoice.status)}</td>
-                  <td style={td}>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <button onClick={() => generateInvoicePdf(invoice)}>Générer PDF</button>
-                      {invoice.pdf_url ? (
-                        <button onClick={() => viewPdf(invoice.pdf_url)}>Voir PDF</button>
-                      ) : (
-                        "Aucun"
-                      )}
-                    </div>
-                  </td>
-                  <td style={td}>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <button onClick={() => updateInvoiceStatus(invoice.id, "sent")}>Envoyée</button>
-                      <button onClick={() => updateInvoiceStatus(invoice.id, "paid")}>Payée</button>
-                      <button onClick={() => updateInvoiceStatus(invoice.id, "cancelled")}>Annulée</button>
-                    </div>
-                  </td>
+        <div className="card">
+          <h2 className="section-title">Liste des factures</h2>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>N° facture</th>
+                  <th>Client</th>
+                  <th>Montant</th>
+                  <th>Payé</th>
+                  <th>Statut</th>
+                  <th>PDF</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {invoices.map((invoice) => (
+                  <tr key={invoice.id}>
+                    <td>{invoice.invoice_number}</td>
+                    <td>{invoice.clients_pms?.nom || "-"}</td>
+                    <td>{invoice.total_amount}</td>
+                    <td>{invoice.paid_amount}</td>
+                    <td>{translateInvoiceStatus(invoice.status)}</td>
+                    <td>
+                      <div className="btn-row">
+                        <button className="btn btn-secondary" onClick={() => generateInvoicePdf(invoice)}>Générer PDF</button>
+                        {invoice.pdf_url ? (
+                          <button className="btn btn-success" onClick={() => viewPdf(invoice.pdf_url)}>Voir PDF</button>
+                        ) : (
+                          "Aucun"
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="btn-row">
+                        <button className="btn btn-secondary" onClick={() => updateInvoiceStatus(invoice.id, "sent")}>Envoyée</button>
+                        <button className="btn btn-success" onClick={() => updateInvoiceStatus(invoice.id, "paid")}>Payée</button>
+                        <button className="btn btn-danger" onClick={() => updateInvoiceStatus(invoice.id, "cancelled")}>Annulée</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-          <h3 style={{ marginTop: 30 }}>Paiements enregistrés</h3>
-          <table style={{ width: "100%", borderCollapse: "collapse", background: "white" }}>
-            <thead>
-              <tr>
-                <th style={th}>Facture ID</th>
-                <th style={th}>Montant</th>
-                <th style={th}>Méthode</th>
-                <th style={th}>Référence</th>
-                <th style={th}>Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((payment) => (
-                <tr key={payment.id}>
-                  <td style={td}>{payment.invoice_id}</td>
-                  <td style={td}>{payment.amount}</td>
-                  <td style={td}>{payment.method || "-"}</td>
-                  <td style={td}>{payment.reference || "-"}</td>
-                  <td style={td}>{payment.paid_at}</td>
+          <hr className="soft" />
+
+          <h3 className="section-title">Paiements enregistrés</h3>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Facture ID</th>
+                  <th>Montant</th>
+                  <th>Méthode</th>
+                  <th>Référence</th>
+                  <th>Date</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {payments.map((payment) => (
+                  <tr key={payment.id}>
+                    <td>{payment.invoice_id}</td>
+                    <td>{payment.amount}</td>
+                    <td>{payment.method || "-"}</td>
+                    <td>{payment.reference || "-"}</td>
+                    <td>{payment.paid_at}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </Layout>
@@ -377,6 +308,3 @@ function translateInvoiceStatus(status) {
   if (status === "cancelled") return "Annulée";
   return status;
 }
-
-const th = { border: "1px solid #ddd", padding: 10, textAlign: "left" };
-const td = { border: "1px solid #ddd", padding: 10 };
