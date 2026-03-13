@@ -21,6 +21,12 @@ export default function Reservations() {
     notes: ""
   });
 
+  const [moveForm, setMoveForm] = useState({
+    reservation_id: "",
+    new_room_id: "",
+    note: ""
+  });
+
   useEffect(() => {
     fetchAll();
   }, []);
@@ -39,20 +45,12 @@ export default function Reservations() {
   }
 
   async function fetchClients() {
-    const { data } = await supabase
-      .from("clients_pms")
-      .select("*")
-      .order("nom", { ascending: true });
-
+    const { data } = await supabase.from("clients_pms").select("*").order("nom", { ascending: true });
     setClients(data || []);
   }
 
   async function fetchRooms() {
-    const { data } = await supabase
-      .from("rooms")
-      .select("*")
-      .order("room_number", { ascending: true });
-
+    const { data } = await supabase.from("rooms").select("*").order("room_number", { ascending: true });
     setRooms(data || []);
   }
 
@@ -129,6 +127,55 @@ export default function Reservations() {
     fetchAll();
   }
 
+  async function moveRoom(e) {
+    e.preventDefault();
+
+    const reservation = reservations.find((r) => Number(r.id) === Number(moveForm.reservation_id));
+    if (!reservation) {
+      alert("Réservation introuvable");
+      return;
+    }
+
+    if (!moveForm.new_room_id) {
+      alert("Choisir la nouvelle chambre");
+      return;
+    }
+
+    const oldRoomId = reservation.room_id;
+    const newRoomId = Number(moveForm.new_room_id);
+
+    const { error: updateReservationError } = await supabase
+      .from("reservations_pms")
+      .update({ room_id: newRoomId })
+      .eq("id", reservation.id);
+
+    if (updateReservationError) {
+      alert("Erreur changement chambre: " + updateReservationError.message);
+      return;
+    }
+
+    await supabase.from("rooms").update({ status: "dirty" }).eq("id", oldRoomId);
+    await supabase.from("rooms").update({ status: "occupied" }).eq("id", newRoomId);
+
+    await supabase.from("reservation_room_moves").insert([
+      {
+        reservation_id: reservation.id,
+        old_room_id: oldRoomId,
+        new_room_id: newRoomId,
+        note: moveForm.note
+      }
+    ]);
+
+    alert("Chambre changée");
+    setMoveForm({
+      reservation_id: "",
+      new_room_id: "",
+      note: ""
+    });
+
+    fetchAll();
+  }
+
   return (
     <Layout title="Réservations">
       <div className="grid">
@@ -174,6 +221,37 @@ export default function Reservations() {
 
             <div style={{ gridColumn: "1 / -1" }}>
               <button className="btn" type="submit">Enregistrer</button>
+            </div>
+          </form>
+        </div>
+
+        <div className="card">
+          <h2 className="section-title">Changer de chambre pendant le séjour</h2>
+          <form className="form-grid two" onSubmit={moveRoom}>
+            <select className="select" value={moveForm.reservation_id} onChange={(e) => setMoveForm({ ...moveForm, reservation_id: e.target.value })} required>
+              <option value="">Choisir une réservation</option>
+              {reservations.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.clients_pms?.nom || "-"} - chambre {r.rooms?.room_number || "-"}
+                </option>
+              ))}
+            </select>
+
+            <select className="select" value={moveForm.new_room_id} onChange={(e) => setMoveForm({ ...moveForm, new_room_id: e.target.value })} required>
+              <option value="">Nouvelle chambre</option>
+              {rooms.map((room) => (
+                <option key={room.id} value={room.id}>
+                  {room.room_number} - {room.room_type}
+                </option>
+              ))}
+            </select>
+
+            <div style={{ gridColumn: "1 / -1" }}>
+              <textarea className="textarea" placeholder="Note de changement" value={moveForm.note} onChange={(e) => setMoveForm({ ...moveForm, note: e.target.value })} />
+            </div>
+
+            <div style={{ gridColumn: "1 / -1" }}>
+              <button className="btn" type="submit">Changer la chambre</button>
             </div>
           </form>
         </div>
