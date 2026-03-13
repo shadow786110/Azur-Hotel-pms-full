@@ -7,6 +7,7 @@ export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
   const [clients, setClients] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({
     invoice_number: "",
     client_id: "",
@@ -24,11 +25,26 @@ export default function Invoices() {
 
   useEffect(() => {
     fetchAll();
+    loadProfile();
   }, []);
+
+  async function loadProfile() {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    if (!session) return;
+
+    const { data } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
+    setProfile(data || null);
+  }
 
   async function fetchAll() {
     const [{ data: invoicesData }, { data: clientsData }, { data: paymentsData }] = await Promise.all([
-      supabase.from("invoices_pms").select("*, clients_pms(id, nom)").order("id", { ascending: false }),
+      supabase
+        .from("invoices_pms")
+        .select("*, clients_pms(id, nom, email, telephone, adresse)")
+        .order("id", { ascending: false }),
       supabase.from("clients_pms").select("*").order("nom", { ascending: true }),
       supabase.from("payments_pms").select("*").order("id", { ascending: false })
     ]);
@@ -95,10 +111,13 @@ export default function Invoices() {
     if (newPaid <= 0) status = "draft";
     if (newPaid >= total) status = "paid";
 
-    await supabase.from("invoices_pms").update({
-      paid_amount: newPaid,
-      status
-    }).eq("id", invoiceId);
+    await supabase
+      .from("invoices_pms")
+      .update({
+        paid_amount: newPaid,
+        status
+      })
+      .eq("id", invoiceId);
 
     alert("Paiement enregistré");
     setPaymentForm({
@@ -107,6 +126,53 @@ export default function Invoices() {
       method: "",
       reference: ""
     });
+    fetchAll();
+  }
+
+  async function deleteInvoice(id) {
+    if (!profile || profile.role !== "admin") {
+      alert("Suppression réservée à l'admin");
+      return;
+    }
+
+    if (!confirm("Supprimer cette facture ?")) return;
+
+    await supabase.from("payments_pms").delete().eq("invoice_id", id);
+
+    const { error } = await supabase.from("invoices_pms").delete().eq("id", id);
+    if (error) {
+      alert("Erreur suppression facture: " + error.message);
+      return;
+    }
+
+    fetchAll();
+  }
+
+  async function deletePayment(id) {
+    if (!profile || profile.role !== "admin") {
+      alert("Suppression réservée à l'admin");
+      return;
+    }
+
+    if (!confirm("Supprimer ce paiement ?")) return;
+
+    const payment = payments.find((p) => p.id === id);
+    if (!payment) return;
+
+    const invoice = invoices.find((i) => i.id === payment.invoice_id);
+    const newPaid = Math.max(0, Number(invoice?.paid_amount || 0) - Number(payment.amount || 0));
+    const total = Number(invoice?.total_amount || 0);
+
+    let status = "draft";
+    if (newPaid > 0 && newPaid < total) status = "partial";
+    if (newPaid >= total) status = "paid";
+
+    await supabase.from("payments_pms").delete().eq("id", id);
+    await supabase
+      .from("invoices_pms")
+      .update({ paid_amount: newPaid, status })
+      .eq("id", payment.invoice_id);
+
     fetchAll();
   }
 
@@ -124,6 +190,9 @@ export default function Invoices() {
       const blob = buildInvoicePdf({
         invoice_number: invoice.invoice_number,
         client_name: invoice.clients_pms?.nom || "-",
+        client_email: invoice.clients_pms?.email || "",
+        client_phone: invoice.clients_pms?.telephone || "",
+        client_address: invoice.clients_pms?.adresse || "",
         status: translateInvoiceStatus(invoice.status),
         total_amount: invoice.total_amount,
         paid_amount: invoice.paid_amount
@@ -176,7 +245,7 @@ export default function Invoices() {
   }
 
   return (
-    <Layout title="Factures">
+    <Layout title="Factures" profile={profile}>
       <div className="grid">
         <div className="grid grid-2">
           <div className="card">
@@ -259,6 +328,9 @@ export default function Invoices() {
                         <button className="btn btn-secondary" onClick={() => updateInvoiceStatus(invoice.id, "sent")}>Envoyée</button>
                         <button className="btn btn-success" onClick={() => updateInvoiceStatus(invoice.id, "paid")}>Payée</button>
                         <button className="btn btn-danger" onClick={() => updateInvoiceStatus(invoice.id, "cancelled")}>Annulée</button>
+                        {profile?.role === "admin" && (
+                          <button className="btn btn-danger" onClick={() => deleteInvoice(invoice.id)}>Supprimer</button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -279,6 +351,7 @@ export default function Invoices() {
                   <th>Méthode</th>
                   <th>Référence</th>
                   <th>Date</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -289,6 +362,15 @@ export default function Invoices() {
                     <td>{payment.method || "-"}</td>
                     <td>{payment.reference || "-"}</td>
                     <td>{payment.paid_at}</td>
+                    <td>
+                      {profile?.role === "admin" ? (
+                        <button className="btn btn-danger" onClick={() => deletePayment(payment.id)}>
+                          Supprimer
+                        </button>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
