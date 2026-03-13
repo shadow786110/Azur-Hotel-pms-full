@@ -6,6 +6,7 @@ import { buildQuotePdf } from "../lib/pdfUtils";
 export default function Quotes() {
   const [quotes, setQuotes] = useState([]);
   const [clients, setClients] = useState([]);
+  const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({
     quote_number: "",
     client_id: "",
@@ -15,11 +16,26 @@ export default function Quotes() {
 
   useEffect(() => {
     fetchAll();
+    loadProfile();
   }, []);
+
+  async function loadProfile() {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    if (!session) return;
+
+    const { data } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
+    setProfile(data || null);
+  }
 
   async function fetchAll() {
     const [{ data: quotesData }, { data: clientsData }] = await Promise.all([
-      supabase.from("quotes_pms").select("*, clients_pms(id, nom)").order("id", { ascending: false }),
+      supabase
+        .from("quotes_pms")
+        .select("*, clients_pms(id, nom, email, telephone, adresse)")
+        .order("id", { ascending: false }),
       supabase.from("clients_pms").select("*").order("nom", { ascending: true })
     ]);
 
@@ -63,11 +79,31 @@ export default function Quotes() {
     fetchAll();
   }
 
+  async function deleteQuote(id) {
+    if (!profile || profile.role !== "admin") {
+      alert("Suppression réservée à l'admin");
+      return;
+    }
+
+    if (!confirm("Supprimer ce devis ?")) return;
+
+    const { error } = await supabase.from("quotes_pms").delete().eq("id", id);
+    if (error) {
+      alert("Erreur suppression devis: " + error.message);
+      return;
+    }
+
+    fetchAll();
+  }
+
   async function generateQuotePdf(quote) {
     try {
       const blob = buildQuotePdf({
         quote_number: quote.quote_number,
         client_name: quote.clients_pms?.nom || "-",
+        client_email: quote.clients_pms?.email || "",
+        client_phone: quote.clients_pms?.telephone || "",
+        client_address: quote.clients_pms?.adresse || "",
         status: translateQuoteStatus(quote.status),
         total_amount: quote.total_amount
       });
@@ -119,7 +155,7 @@ export default function Quotes() {
   }
 
   return (
-    <Layout title="Devis">
+    <Layout title="Devis" profile={profile}>
       <div className="grid grid-2">
         <div className="card">
           <h2 className="section-title">Nouveau devis</h2>
@@ -139,6 +175,7 @@ export default function Quotes() {
               <option value="accepted">Accepté</option>
               <option value="refused">Refusé</option>
             </select>
+            <div className="helper">Le devis généré contient maintenant la mention de validité et les coordonnées bancaires.</div>
             <button className="btn" type="submit">Enregistrer</button>
           </form>
         </div>
@@ -179,6 +216,9 @@ export default function Quotes() {
                         <button className="btn btn-secondary" onClick={() => updateStatus(quote.id, "sent")}>Envoyé</button>
                         <button className="btn btn-success" onClick={() => updateStatus(quote.id, "accepted")}>Accepté</button>
                         <button className="btn btn-danger" onClick={() => updateStatus(quote.id, "refused")}>Refusé</button>
+                        {profile?.role === "admin" && (
+                          <button className="btn btn-danger" onClick={() => deleteQuote(quote.id)}>Supprimer</button>
+                        )}
                       </div>
                     </td>
                   </tr>
