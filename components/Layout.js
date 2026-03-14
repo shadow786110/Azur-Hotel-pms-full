@@ -18,6 +18,7 @@ export default function Layout({ children, title = "Azur Hotel PMS", profile }) 
     { href: "/expenses", label: "Dépenses" },
     { href: "/quotes", label: "Devis" },
     { href: "/invoices", label: "Factures" }
+    { href: "/stock", label: "Stock" }
   ];
 
   return (
