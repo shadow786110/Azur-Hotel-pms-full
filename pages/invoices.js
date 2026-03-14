@@ -411,4 +411,375 @@ export default function Invoices() {
 
       const fileName = `invoice-${invoice.invoice_number || invoice.id}-${Date.now()}.pdf`;
 
-      const { error:
+      const { error: uploadError } = await supabase.storage
+        .from("invoices-pdf")
+        .upload(fileName, blob, {
+          contentType: "application/pdf",
+          upsert: true
+        });
+
+      if (uploadError) {
+        alert("Erreur upload PDF facture: " + uploadError.message);
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from("invoices_pms")
+        .update({ pdf_url: fileName })
+        .eq("id", invoice.id);
+
+      if (updateError) {
+        alert("Erreur enregistrement PDF: " + updateError.message);
+        return;
+      }
+
+      alert("PDF facture généré");
+      fetchAll();
+    } catch (err) {
+      alert("Erreur PDF facture: " + err.message);
+    }
+  }
+
+  async function viewPdf(path) {
+    if (!path) return;
+
+    const { data, error } = await supabase.storage
+      .from("invoices-pdf")
+      .createSignedUrl(path, 60);
+
+    if (error) {
+      alert("Erreur lecture PDF: " + error.message);
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank");
+  }
+
+  const totals = useMemo(
+    () => computeInvoiceTotals(cart.map(computeLine)),
+    [cart]
+  );
+
+  return (
+    <Layout title="Factures" profile={profile}>
+      <div className="grid">
+        <div className="grid grid-2">
+          <div className="card">
+            <h2 className="section-title">Nouvelle facture</h2>
+
+            <form className="form-grid" onSubmit={handleInvoiceSubmit}>
+              <input
+                className="input"
+                placeholder="Numéro facture"
+                value={form.invoice_number}
+                onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
+                required
+              />
+
+              <div className="btn-row">
+                <button
+                  type="button"
+                  className={`btn ${customerMode === "existing" ? "" : "btn-secondary"}`}
+                  onClick={() => setCustomerMode("existing")}
+                >
+                  Client existant
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${customerMode === "manual" ? "" : "btn-secondary"}`}
+                  onClick={() => setCustomerMode("manual")}
+                >
+                  Client manuel
+                </button>
+              </div>
+
+              {customerMode === "existing" ? (
+                <select
+                  className="select"
+                  value={form.client_id}
+                  onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+                >
+                  <option value="">Choisir un client</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.nom}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <>
+                  <input
+                    className="input"
+                    placeholder="Nom client"
+                    value={form.manual_client_name}
+                    onChange={(e) => setForm({ ...form, manual_client_name: e.target.value })}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Email client"
+                    value={form.manual_client_email}
+                    onChange={(e) => setForm({ ...form, manual_client_email: e.target.value })}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Téléphone client"
+                    value={form.manual_client_phone}
+                    onChange={(e) => setForm({ ...form, manual_client_phone: e.target.value })}
+                  />
+                  <textarea
+                    className="textarea"
+                    placeholder="Adresse client"
+                    value={form.manual_client_address}
+                    onChange={(e) => setForm({ ...form, manual_client_address: e.target.value })}
+                  />
+                </>
+              )}
+
+              <select
+                className="select"
+                value={form.payment_method}
+                onChange={(e) => setForm({ ...form, payment_method: e.target.value })}
+              >
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+
+              <input
+                className="input"
+                type="number"
+                placeholder="Montant déjà payé"
+                value={form.paid_amount}
+                onChange={(e) => setForm({ ...form, paid_amount: e.target.value })}
+              />
+
+              <hr className="soft" />
+
+              <h3 className="section-title">Panier des prestations</h3>
+
+              {cart.map((line, index) => (
+                <div key={index} className="card" style={{ padding: 12 }}>
+                  <div className="form-grid two">
+                    <input
+                      className="input"
+                      placeholder="Désignation"
+                      value={line.label}
+                      onChange={(e) => updateCartLine(index, "label", e.target.value)}
+                    />
+
+                    <input
+                      className="input"
+                      type="number"
+                      placeholder="Quantité"
+                      value={line.quantity}
+                      onChange={(e) => updateCartLine(index, "quantity", e.target.value)}
+                    />
+
+                    <input
+                      className="input"
+                      type="number"
+                      placeholder="Prix unitaire HT"
+                      value={line.unit_price}
+                      onChange={(e) => updateCartLine(index, "unit_price", e.target.value)}
+                    />
+
+                    <select
+                      className="select"
+                      value={line.vat_rate}
+                      onChange={(e) => updateCartLine(index, "vat_rate", e.target.value)}
+                    >
+                      {VAT_OPTIONS.map((vat) => (
+                        <option key={vat} value={vat}>{vat}%</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="helper" style={{ marginTop: 10 }}>
+                    HT : {Number(line.total_ht || 0).toFixed(2)} € | TVA : {Number(line.total_tva || 0).toFixed(2)} € | TTC : {Number(line.total_ttc || 0).toFixed(2)} €
+                  </div>
+
+                  <div className="btn-row" style={{ marginTop: 10 }}>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={() => removeCartLine(index)}
+                    >
+                      Supprimer ligne
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <div className="btn-row">
+                <button type="button" className="btn btn-secondary" onClick={addCartLine}>
+                  Ajouter prestation au panier
+                </button>
+              </div>
+
+              <div className="card" style={{ padding: 12 }}>
+                <strong>Total HT :</strong> {totals.total_ht.toFixed(2)} €<br />
+                <strong>Total TVA :</strong> {totals.total_tva.toFixed(2)} €<br />
+                <strong>Total TTC :</strong> {totals.total_ttc.toFixed(2)} €
+              </div>
+
+              <button className="btn" type="submit">
+                Valider la facture
+              </button>
+            </form>
+          </div>
+
+          <div className="card">
+            <h2 className="section-title">Enregistrer un paiement</h2>
+            <form className="form-grid" onSubmit={handlePaymentSubmit}>
+              <select
+                className="select"
+                value={paymentForm.invoice_id}
+                onChange={(e) => setPaymentForm({ ...paymentForm, invoice_id: e.target.value })}
+                required
+              >
+                <option value="">Choisir une facture</option>
+                {invoices.map((invoice) => (
+                  <option key={invoice.id} value={invoice.id}>
+                    {invoice.invoice_number} - {invoice.clients_pms?.nom || invoice.manual_client_name || "-"}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                className="input"
+                type="number"
+                placeholder="Montant payé"
+                value={paymentForm.amount}
+                onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                required
+              />
+
+              <select
+                className="select"
+                value={paymentForm.method}
+                onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })}
+              >
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+
+              <input
+                className="input"
+                placeholder="Référence"
+                value={paymentForm.reference}
+                onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
+              />
+
+              <button className="btn" type="submit">
+                Enregistrer paiement
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div className="card">
+          <h2 className="section-title">Liste des factures</h2>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>N° facture</th>
+                  <th>Client</th>
+                  <th>Montant</th>
+                  <th>Payé</th>
+                  <th>Paiement</th>
+                  <th>Statut</th>
+                  <th>PDF</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoices.map((invoice) => (
+                  <tr key={invoice.id}>
+                    <td>{invoice.invoice_number}</td>
+                    <td>{invoice.clients_pms?.nom || invoice.manual_client_name || "-"}</td>
+                    <td>{Number(invoice.total_amount || 0).toFixed(2)} €</td>
+                    <td>{Number(invoice.paid_amount || 0).toFixed(2)} €</td>
+                    <td>{invoice.payment_method || "-"}</td>
+                    <td>{translateInvoiceStatus(invoice.status)}</td>
+                    <td>
+                      <div className="btn-row">
+                        <button className="btn btn-secondary" onClick={() => generateInvoicePdf(invoice)}>
+                          Générer PDF
+                        </button>
+                        {invoice.pdf_url ? (
+                          <button className="btn btn-success" onClick={() => viewPdf(invoice.pdf_url)}>
+                            Voir PDF
+                          </button>
+                        ) : (
+                          "Aucun"
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="btn-row">
+                        {profile?.role === "admin" && (
+                          <button className="btn btn-danger" onClick={() => deleteInvoice(invoice.id)}>
+                            Supprimer
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <hr className="soft" />
+
+          <h3 className="section-title">Paiements enregistrés</h3>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Facture ID</th>
+                  <th>Montant</th>
+                  <th>Méthode</th>
+                  <th>Référence</th>
+                  <th>Date</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((payment) => (
+                  <tr key={payment.id}>
+                    <td>{payment.invoice_id}</td>
+                    <td>{payment.amount}</td>
+                    <td>{payment.method || "-"}</td>
+                    <td>{payment.reference || "-"}</td>
+                    <td>{payment.paid_at}</td>
+                    <td>
+                      {profile?.role === "admin" ? (
+                        <button className="btn btn-danger" onClick={() => deletePayment(payment.id)}>
+                          Supprimer
+                        </button>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
+}
+
+function translateInvoiceStatus(status) {
+  if (status === "draft") return "Brouillon";
+  if (status === "sent") return "Envoyée";
+  if (status === "paid") return "Payée";
+  if (status === "partial") return "Partielle";
+  if (status === "cancelled") return "Annulée";
+  return status;
+}
