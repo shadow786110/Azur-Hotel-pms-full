@@ -212,15 +212,30 @@ export default function Quotes() {
                       </div>
                     </td>
                     <td>
-                      <div className="btn-row">
-                        <button className="btn btn-secondary" onClick={() => updateStatus(quote.id, "sent")}>Envoyé</button>
-                        <button className="btn btn-success" onClick={() => updateStatus(quote.id, "accepted")}>Accepté</button>
-                        <button className="btn btn-danger" onClick={() => updateStatus(quote.id, "refused")}>Refusé</button>
-                        {profile?.role === "admin" && (
-                          <button className="btn btn-danger" onClick={() => deleteQuote(quote.id)}>Supprimer</button>
-                        )}
-                      </div>
-                    </td>
+  <div className="btn-row">
+    <button className="btn btn-secondary" onClick={() => updateStatus(quote.id, "sent")}>
+      Envoyé
+    </button>
+
+    <button className="btn btn-success" onClick={() => updateStatus(quote.id, "accepted")}>
+      Accepté
+    </button>
+
+    <button className="btn btn-success" onClick={() => convertQuoteToInvoice(quote)}>
+      Convertir en facture
+    </button>
+
+    <button className="btn btn-danger" onClick={() => updateStatus(quote.id, "refused")}>
+      Refusé
+    </button>
+
+    {profile?.role === "admin" && (
+      <button className="btn btn-danger" onClick={() => deleteQuote(quote.id)}>
+        Supprimer
+      </button>
+    )}
+  </div>
+</td>
                   </tr>
                 ))}
               </tbody>
