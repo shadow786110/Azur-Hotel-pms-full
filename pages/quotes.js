@@ -239,3 +239,67 @@ function translateQuoteStatus(status) {
   if (status === "refused") return "Refusé";
   return status;
 }
+async function convertQuoteToInvoice(quote) {
+    try {
+      const { data: quoteLines } = await supabase
+        .from("quote_custom_lines")
+        .select("*")
+        .eq("quote_id", quote.id)
+        .order("id", { ascending: true });
+
+      const invoicePayload = {
+        invoice_number: `F-${quote.quote_number}`,
+        client_id: quote.client_id || null,
+        manual_client_name: quote.manual_client_name || null,
+        manual_client_email: quote.manual_client_email || null,
+        manual_client_phone: quote.manual_client_phone || null,
+        manual_client_address: quote.manual_client_address || null,
+        total_amount: Number(quote.total_amount || 0),
+        paid_amount: 0,
+        status: "draft",
+        payment_method: "Crédit"
+      };
+
+      const { data: insertedInvoice, error: invoiceError } = await supabase
+        .from("invoices_pms")
+        .insert([invoicePayload])
+        .select()
+        .single();
+
+      if (invoiceError) {
+        alert("Erreur conversion devis → facture : " + invoiceError.message);
+        return;
+      }
+
+      if (quoteLines?.length) {
+        const invoiceLines = quoteLines.map((line) => ({
+          invoice_id: insertedInvoice.id,
+          label: line.label,
+          quantity: Number(line.quantity || 0),
+          unit_price: Number(line.unit_price || 0),
+          vat_rate: Number(line.vat_rate || 0),
+          total_ht: Number(line.total_ht || 0),
+          total_tva: Number(line.total_tva || 0),
+          total_ttc: Number(line.total_ttc || 0)
+        }));
+
+        const { error: linesError } = await supabase
+          .from("invoice_custom_lines")
+          .insert(invoiceLines);
+
+        if (linesError) {
+          alert("Erreur lignes facture : " + linesError.message);
+          return;
+        }
+      }
+
+      await supabase
+        .from("quotes_pms")
+        .update({ status: "accepted" })
+        .eq("id", quote.id);
+
+      alert("Devis converti en facture");
+    } catch (err) {
+      alert("Erreur conversion : " + err.message);
+    }
+  }
