@@ -13,8 +13,8 @@ function calcNights(checkIn, checkOut) {
   return Math.round(diff / (1000 * 60 * 60 * 24));
 }
 
-function round2(v) {
-  return Math.round((Number(v || 0) + Number.EPSILON) * 100) / 100;
+function round2(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 }
 
 function computeReservationAmounts({
@@ -37,7 +37,8 @@ function computeReservationAmounts({
 
   const totalOccupants = adultsCount + childrenCount;
 
-  const nightly_price_ht = vat > 0 ? priceTtcNight / (1 + vat / 100) : priceTtcNight;
+  const nightly_price_ht =
+    vat > 0 ? priceTtcNight / (1 + vat / 100) : priceTtcNight;
 
   const room_total_ttc = priceTtcNight * nights;
   const room_total_ht = nightly_price_ht * nights;
@@ -55,7 +56,6 @@ function computeReservationAmounts({
   const taxe_unitaire = Math.min(taxe_unitaire_brute, cap);
 
   const taxe_sejour_amount = taxe_unitaire * taxableAdultsCount * nights;
-
   const total_amount = room_total_ttc + taxe_sejour_amount;
 
   return {
@@ -74,6 +74,7 @@ function computeReservationAmounts({
 }
 
 export default function Reservations() {
+  const [profile, setProfile] = useState(null);
   const [reservations, setReservations] = useState([]);
   const [clients, setClients] = useState([]);
   const [rooms, setRooms] = useState([]);
@@ -103,16 +104,38 @@ export default function Reservations() {
 
   useEffect(() => {
     fetchAll();
+    loadProfile();
   }, []);
 
+  async function loadProfile() {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    if (!session) return;
+
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", session.user.id)
+      .single();
+
+    setProfile(data || null);
+  }
+
   async function fetchAll() {
-    await Promise.all([fetchReservations(), fetchClients(), fetchRooms(), fetchSettings()]);
+    await Promise.all([
+      fetchReservations(),
+      fetchClients(),
+      fetchRooms(),
+      fetchSettings()
+    ]);
   }
 
   async function fetchReservations() {
     const { data } = await supabase
       .from("reservations_pms")
-      .select("*, clients_pms(id, nom), rooms(id, room_number, room_type)")
+      .select("*, clients_pms(id, nom, email, telephone, adresse, credit_balance), rooms(id, room_number, room_type)")
       .order("id", { ascending: false });
 
     setReservations(data || []);
@@ -206,7 +229,10 @@ export default function Reservations() {
     }
 
     if (form.status === "checked_in") {
-      await supabase.from("rooms").update({ status: "occupied" }).eq("id", Number(form.room_id));
+      await supabase
+        .from("rooms")
+        .update({ status: "occupied" })
+        .eq("id", Number(form.room_id));
     }
 
     alert("Réservation ajoutée");
@@ -242,15 +268,24 @@ export default function Reservations() {
     }
 
     if (newStatus === "checked_in") {
-      await supabase.from("rooms").update({ status: "occupied" }).eq("id", reservation.room_id);
+      await supabase
+        .from("rooms")
+        .update({ status: "occupied" })
+        .eq("id", reservation.room_id);
     }
 
     if (newStatus === "checked_out") {
-      await supabase.from("rooms").update({ status: "dirty" }).eq("id", reservation.room_id);
+      await supabase
+        .from("rooms")
+        .update({ status: "dirty" })
+        .eq("id", reservation.room_id);
     }
 
     if (newStatus === "cancelled") {
-      await supabase.from("rooms").update({ status: "available" }).eq("id", reservation.room_id);
+      await supabase
+        .from("rooms")
+        .update({ status: "available" })
+        .eq("id", reservation.room_id);
     }
 
     fetchAll();
@@ -259,7 +294,9 @@ export default function Reservations() {
   async function moveRoom(e) {
     e.preventDefault();
 
-    const reservation = reservations.find((r) => Number(r.id) === Number(moveForm.reservation_id));
+    const reservation = reservations.find(
+      (r) => Number(r.id) === Number(moveForm.reservation_id)
+    );
     if (!reservation) {
       alert("Réservation introuvable");
       return;
@@ -278,8 +315,15 @@ export default function Reservations() {
       return;
     }
 
-    await supabase.from("rooms").update({ status: "dirty" }).eq("id", oldRoomId);
-    await supabase.from("rooms").update({ status: "occupied" }).eq("id", newRoomId);
+    await supabase
+      .from("rooms")
+      .update({ status: "dirty" })
+      .eq("id", oldRoomId);
+
+    await supabase
+      .from("rooms")
+      .update({ status: "occupied" })
+      .eq("id", newRoomId);
 
     await supabase.from("reservation_room_moves").insert([
       {
@@ -300,8 +344,87 @@ export default function Reservations() {
     fetchAll();
   }
 
+  async function createInvoiceFromReservation(reservation) {
+    try {
+      const { data: client } = await supabase
+        .from("clients_pms")
+        .select("*")
+        .eq("id", reservation.client_id)
+        .single();
+
+      const invoicePayload = {
+        invoice_number: `RES-${reservation.id}-${Date.now()}`,
+        client_id: reservation.client_id,
+        total_amount: Number(reservation.total_amount || 0),
+        paid_amount: Number(reservation.paid_amount || 0),
+        status:
+          Number(reservation.paid_amount || 0) >= Number(reservation.total_amount || 0)
+            ? "paid"
+            : Number(reservation.paid_amount || 0) > 0
+              ? "partial"
+              : "draft",
+        payment_method: "Crédit",
+        notes: `Facture créée automatiquement depuis réservation #${reservation.id}`
+      };
+
+      const { data: insertedInvoice, error: invoiceError } = await supabase
+        .from("invoices_pms")
+        .insert([invoicePayload])
+        .select()
+        .single();
+
+      if (invoiceError) {
+        alert("Erreur création facture: " + invoiceError.message);
+        return;
+      }
+
+      const nights = calcNights(reservation.check_in, reservation.check_out) || 1;
+      const lineLabel = `Séjour chambre ${reservation.rooms?.room_number || ""} du ${reservation.check_in} au ${reservation.check_out} (${nights} nuit(s))`;
+
+      await supabase.from("invoice_custom_lines").insert([
+        {
+          invoice_id: insertedInvoice.id,
+          label: lineLabel,
+          quantity: 1,
+          unit_price: Number(reservation.room_total_ht || 0),
+          vat_rate: Number(reservation.vat_rate || 0),
+          total_ht: Number(reservation.room_total_ht || 0),
+          total_tva: Number(reservation.room_total_tva || 0),
+          total_ttc: Number(reservation.room_total_ttc || 0)
+        },
+        {
+          invoice_id: insertedInvoice.id,
+          label: "Taxe de séjour",
+          quantity: 1,
+          unit_price: Number(reservation.taxe_sejour_amount || 0),
+          vat_rate: 0,
+          total_ht: Number(reservation.taxe_sejour_amount || 0),
+          total_tva: 0,
+          total_ttc: Number(reservation.taxe_sejour_amount || 0)
+        }
+      ]);
+
+      const due =
+        Number(reservation.total_amount || 0) - Number(reservation.paid_amount || 0);
+
+      if (due > 0 && client) {
+        await supabase
+          .from("clients_pms")
+          .update({
+            credit_balance: Number(client.credit_balance || 0) + due
+          })
+          .eq("id", reservation.client_id);
+      }
+
+      alert("Facture créée automatiquement");
+      fetchAll();
+    } catch (err) {
+      alert("Erreur facture depuis réservation: " + err.message);
+    }
+  }
+
   return (
-    <Layout title="Réservations">
+    <Layout title="Réservations" profile={profile}>
       <div className="grid">
         <div className="card">
           <h2 className="section-title">Nouvelle réservation</h2>
@@ -456,6 +579,7 @@ export default function Reservations() {
 
         <div className="card">
           <h2 className="section-title">Changer de chambre pendant le séjour</h2>
+
           <form className="form-grid two" onSubmit={moveRoom}>
             <select
               className="select"
@@ -504,6 +628,7 @@ export default function Reservations() {
 
         <div className="card">
           <h2 className="section-title">Liste des réservations</h2>
+
           <div className="table-wrap">
             <table className="table">
               <thead>
@@ -519,6 +644,7 @@ export default function Reservations() {
                   <th>Actions</th>
                 </tr>
               </thead>
+
               <tbody>
                 {reservations.map((reservation) => (
                   <tr key={reservation.id}>
@@ -532,17 +658,39 @@ export default function Reservations() {
                     <td>{Number(reservation.total_amount || 0).toFixed(2)} €</td>
                     <td>
                       <div className="btn-row">
-                        <button className="btn btn-secondary" onClick={() => updateReservationStatus(reservation, "confirmed")}>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => updateReservationStatus(reservation, "confirmed")}
+                        >
                           Confirmer
                         </button>
-                        <button className="btn btn-success" onClick={() => updateReservationStatus(reservation, "checked_in")}>
+
+                        <button
+                          className="btn btn-success"
+                          onClick={() => updateReservationStatus(reservation, "checked_in")}
+                        >
                           Check-in
                         </button>
-                        <button className="btn btn-warning" onClick={() => updateReservationStatus(reservation, "checked_out")}>
+
+                        <button
+                          className="btn btn-warning"
+                          onClick={() => updateReservationStatus(reservation, "checked_out")}
+                        >
                           Check-out
                         </button>
-                        <button className="btn btn-danger" onClick={() => updateReservationStatus(reservation, "cancelled")}>
+
+                        <button
+                          className="btn btn-danger"
+                          onClick={() => updateReservationStatus(reservation, "cancelled")}
+                        >
                           Annuler
+                        </button>
+
+                        <button
+                          className="btn btn-success"
+                          onClick={() => createInvoiceFromReservation(reservation)}
+                        >
+                          Facturer
                         </button>
                       </div>
                     </td>
