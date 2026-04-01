@@ -3,116 +3,330 @@ import Layout from "../components/Layout";
 import { supabase } from "../lib/supabaseClient";
 
 export default function Stock() {
-  const [items, setItems] = useState([]);
+  const [profile, setProfile] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [movements, setMovements] = useState([]);
+
   const [form, setForm] = useState({
     name: "",
     category: "vente",
-    sku: "",
-    unit: "pièce",
+    price: "",
+    stock: ""
+  });
+
+  const [movementForm, setMovementForm] = useState({
+    product_id: "",
     quantity: "",
-    min_quantity: "",
-    unit_price: "",
-    notes: ""
+    type: "out",
+    reason: ""
   });
 
   useEffect(() => {
-    fetchItems();
+    fetchAll();
+    loadProfile();
   }, []);
 
-  async function fetchItems() {
-    const { data } = await supabase
-      .from("products_stock")
-      .select("*")
-      .order("id", { ascending: false });
+  async function loadProfile() {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
 
-    setItems(data || []);
+    if (!session) return;
+
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", session.user.id)
+      .single();
+
+    setProfile(data || null);
   }
 
-  async function handleSubmit(e) {
+  async function fetchAll() {
+    const [{ data: productsData }, { data: movementsData }] =
+      await Promise.all([
+        supabase.from("products").select("*").order("id", { ascending: false }),
+        supabase
+          .from("stock_movements")
+          .select("*, products(name)")
+          .order("id", { ascending: false })
+      ]);
+
+    setProducts(productsData || []);
+    setMovements(movementsData || []);
+  }
+
+  async function handleProductSubmit(e) {
     e.preventDefault();
 
-    const { error } = await supabase.from("products_stock").insert([
+    const { error } = await supabase.from("products").insert([
       {
         name: form.name,
         category: form.category,
-        sku: form.sku,
-        unit: form.unit,
-        quantity: Number(form.quantity || 0),
-        min_quantity: Number(form.min_quantity || 0),
-        unit_price: Number(form.unit_price || 0),
-        notes: form.notes
+        price: Number(form.price || 0),
+        stock: Number(form.stock || 0)
       }
     ]);
 
     if (error) {
-      alert("Erreur stock: " + error.message);
+      alert("Erreur produit: " + error.message);
       return;
     }
 
-    alert("Produit ajouté");
     setForm({
       name: "",
       category: "vente",
-      sku: "",
-      unit: "pièce",
-      quantity: "",
-      min_quantity: "",
-      unit_price: "",
-      notes: ""
+      price: "",
+      stock: ""
     });
-    fetchItems();
+
+    fetchAll();
+  }
+
+  async function handleMovementSubmit(e) {
+    e.preventDefault();
+
+    const quantity = Number(movementForm.quantity || 0);
+    const productId = Number(movementForm.product_id);
+
+    const product = products.find((p) => p.id === productId);
+    if (!product) return;
+
+    let newStock = product.stock;
+
+    if (movementForm.type === "out") {
+      if (product.stock < quantity) {
+        alert("Stock insuffisant");
+        return;
+      }
+      newStock -= quantity;
+    } else {
+      newStock += quantity;
+    }
+
+    await supabase.from("stock_movements").insert([
+      {
+        product_id: productId,
+        quantity,
+        type: movementForm.type,
+        reason: movementForm.reason
+      }
+    ]);
+
+    await supabase
+      .from("products")
+      .update({ stock: newStock })
+      .eq("id", productId);
+
+    setMovementForm({
+      product_id: "",
+      quantity: "",
+      type: "out",
+      reason: ""
+    });
+
+    fetchAll();
+  }
+
+  async function deleteProduct(id) {
+    if (profile?.role !== "admin") {
+      alert("Admin uniquement");
+      return;
+    }
+
+    if (!confirm("Supprimer ce produit ?")) return;
+
+    await supabase.from("products").delete().eq("id", id);
+    fetchAll();
   }
 
   return (
-    <Layout title="Stock">
-      <div className="grid grid-2">
+    <Layout title="Stock" profile={profile}>
+      <div className="grid">
+        {/* PRODUITS */}
         <div className="card">
-          <h2 className="section-title">Ajouter un produit</h2>
-          <form className="form-grid" onSubmit={handleSubmit}>
-            <input className="input" placeholder="Nom produit" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            <select className="select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-              <option value="vente">Produit de vente</option>
-              <option value="menage">Produit ménager</option>
-              <option value="ustensile">Ustensile hôtel</option>
+          <h2 className="section-title">Ajouter produit</h2>
+
+          <form className="form-grid" onSubmit={handleProductSubmit}>
+            <input
+              className="input"
+              placeholder="Nom produit"
+              value={form.name}
+              onChange={(e) =>
+                setForm({ ...form, name: e.target.value })
+              }
+              required
+            />
+
+            <select
+              className="select"
+              value={form.category}
+              onChange={(e) =>
+                setForm({ ...form, category: e.target.value })
+              }
+            >
+              <option value="vente">Produit vente</option>
+              <option value="menage">Produit ménage</option>
+              <option value="ustensile">Ustensile</option>
             </select>
-            <input className="input" placeholder="SKU / Référence" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
-            <input className="input" placeholder="Unité" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-            <input className="input" type="number" placeholder="Quantité" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
-            <input className="input" type="number" placeholder="Seuil minimum" value={form.min_quantity} onChange={(e) => setForm({ ...form, min_quantity: e.target.value })} />
-            <input className="input" type="number" placeholder="Prix unitaire" value={form.unit_price} onChange={(e) => setForm({ ...form, unit_price: e.target.value })} />
-            <textarea className="textarea" placeholder="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-            <button className="btn" type="submit">Enregistrer</button>
+
+            <input
+              className="input"
+              type="number"
+              placeholder="Prix"
+              value={form.price}
+              onChange={(e) =>
+                setForm({ ...form, price: e.target.value })
+              }
+            />
+
+            <input
+              className="input"
+              type="number"
+              placeholder="Stock initial"
+              value={form.stock}
+              onChange={(e) =>
+                setForm({ ...form, stock: e.target.value })
+              }
+            />
+
+            <button className="btn">Ajouter</button>
           </form>
         </div>
 
+        {/* MOUVEMENT */}
         <div className="card">
-          <h2 className="section-title">Liste du stock</h2>
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Nom</th>
-                  <th>Catégorie</th>
-                  <th>Qté</th>
-                  <th>Min</th>
-                  <th>Unité</th>
-                  <th>Prix</th>
+          <h2 className="section-title">Mouvement stock</h2>
+
+          <form className="form-grid" onSubmit={handleMovementSubmit}>
+            <select
+              className="select"
+              value={movementForm.product_id}
+              onChange={(e) =>
+                setMovementForm({
+                  ...movementForm,
+                  product_id: e.target.value
+                })
+              }
+              required
+            >
+              <option value="">Produit</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} (stock: {p.stock})
+                </option>
+              ))}
+            </select>
+
+            <input
+              className="input"
+              type="number"
+              placeholder="Quantité"
+              value={movementForm.quantity}
+              onChange={(e) =>
+                setMovementForm({
+                  ...movementForm,
+                  quantity: e.target.value
+                })
+              }
+              required
+            />
+
+            <select
+              className="select"
+              value={movementForm.type}
+              onChange={(e) =>
+                setMovementForm({
+                  ...movementForm,
+                  type: e.target.value
+                })
+              }
+            >
+              <option value="out">Sortie</option>
+              <option value="in">Entrée</option>
+            </select>
+
+            <input
+              className="input"
+              placeholder="Motif"
+              value={movementForm.reason}
+              onChange={(e) =>
+                setMovementForm({
+                  ...movementForm,
+                  reason: e.target.value
+                })
+              }
+            />
+
+            <button className="btn">Valider</button>
+          </form>
+        </div>
+
+        {/* LISTE PRODUITS */}
+        <div className="card">
+          <h2 className="section-title">Produits</h2>
+
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Nom</th>
+                <th>Catégorie</th>
+                <th>Prix</th>
+                <th>Stock</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {products.map((p) => (
+                <tr key={p.id}>
+                  <td>{p.name}</td>
+                  <td>{p.category}</td>
+                  <td>{p.price} €</td>
+                  <td>{p.stock}</td>
+                  <td>
+                    {profile?.role === "admin" && (
+                      <button
+                        className="btn btn-danger"
+                        onClick={() => deleteProduct(p.id)}
+                      >
+                        Supprimer
+                      </button>
+                    )}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.name}</td>
-                    <td>{item.category}</td>
-                    <td>{item.quantity}</td>
-                    <td>{item.min_quantity}</td>
-                    <td>{item.unit}</td>
-                    <td>{item.unit_price}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* HISTORIQUE */}
+        <div className="card">
+          <h2 className="section-title">Historique stock</h2>
+
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Produit</th>
+                <th>Type</th>
+                <th>Quantité</th>
+                <th>Motif</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {movements.map((m) => (
+                <tr key={m.id}>
+                  <td>{m.products?.name}</td>
+                  <td>{m.type}</td>
+                  <td>{m.quantity}</td>
+                  <td>{m.reason}</td>
+                  <td>{m.created_at}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </Layout>
