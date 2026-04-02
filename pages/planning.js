@@ -34,38 +34,32 @@ function getReservationBadgeClass(status) {
   return "badge badge-gray";
 }
 
-function getCellStyle(status) {
-  if (status === "checked_in") {
+function getCellStyle(reservation, dateStr) {
+
+  if (dateStr === reservation.check_in) {
     return {
-      background: "#eaf8ee",
-      border: "1px solid #cfead7"
+      background: "#dbeafe", // arrivée
+      border: "2px solid #3b82f6"
     };
   }
 
-  if (status === "confirmed") {
+  if (dateStr === reservation.check_out) {
     return {
-      background: "#e7f0ff",
-      border: "1px solid #cfe0ff"
+      background: "#fef3c7", // départ
+      border: "2px solid #f59e0b"
     };
   }
 
-  if (status === "pending") {
+  if (reservation.status === "checked_in") {
     return {
-      background: "#fff4df",
-      border: "1px solid #ffe2a8"
-    };
-  }
-
-  if (status === "cancelled") {
-    return {
-      background: "#ffe8e6",
-      border: "1px solid #ffc9c4"
+      background: "#dcfce7", // en cours
+      border: "2px solid #16a34a"
     };
   }
 
   return {
-    background: "#f8fafc",
-    border: "1px solid #edf2f7"
+    background: "#f1f5f9",
+    border: "1px solid #cbd5e1"
   };
 }
 
