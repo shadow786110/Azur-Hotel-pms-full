@@ -11,17 +11,20 @@ export default function Layout({ children, title = "Azur Hotel PMS", profile }) 
   }
 
   const links = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/clients", label: "Clients" },
-  { href: "/rooms", label: "Chambres" },
-  { href: "/reservations", label: "Réservations" },
-  { href: "/planning", label: "Planning" },
-  { href: "/expenses", label: "Dépenses" },
-  { href: "/quotes", label: "Devis" },
-  { href: "/invoices", label: "Factures" },
-  { href: "/stock", label: "Stock" },
-  { href: "/caisse", label: "Caisse" }
-];
+    { href: "/dashboard", label: "Dashboard" },
+    { href: "/clients", label: "Clients" },
+    { href: "/rooms", label: "Chambres" },
+    { href: "/reservations", label: "Réservations" },
+    { href: "/planning", label: "Planning" },
+    { href: "/expenses", label: "Dépenses" },
+    { href: "/quotes", label: "Devis" },
+    { href: "/invoices", label: "Factures" },
+    { href: "/stock", label: "Stock" },
+    { href: "/caisse", label: "Caisse" },
+    { href: "/credits", label: "Crédits" },
+    { href: "/settings", label: "Paramètres" }
+  ];
+
   return (
     <div className="page-shell">
       <aside className="sidebar">
