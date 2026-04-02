@@ -35,32 +35,62 @@ function getReservationBadgeClass(status) {
 }
 
 function getCellStyle(reservation, dateStr) {
-
   if (dateStr === reservation.check_in) {
     return {
-      background: "#dbeafe", // arrivée
+      background: "#dbeafe",
       border: "2px solid #3b82f6"
     };
   }
 
   if (dateStr === reservation.check_out) {
     return {
-      background: "#fef3c7", // départ
+      background: "#fef3c7",
       border: "2px solid #f59e0b"
     };
   }
 
   if (reservation.status === "checked_in") {
     return {
-      background: "#dcfce7", // en cours
+      background: "#dcfce7",
       border: "2px solid #16a34a"
     };
   }
 
+  if (reservation.status === "confirmed") {
+    return {
+      background: "#e7f0ff",
+      border: "1px solid #cfe0ff"
+    };
+  }
+
+  if (reservation.status === "pending") {
+    return {
+      background: "#fff4df",
+      border: "1px solid #ffe2a8"
+    };
+  }
+
+  if (reservation.status === "cancelled") {
+    return {
+      background: "#ffe8e6",
+      border: "1px solid #ffc9c4"
+    };
+  }
+
   return {
-    background: "#f1f5f9",
-    border: "1px solid #cbd5e1"
+    background: "#f8fafc",
+    border: "1px solid #edf2f7"
   };
+}
+
+function openReservation(reservation) {
+  alert(
+    "Client: " + (reservation.clients_pms?.nom || "") +
+    "\nChambre: " + (reservation.rooms?.room_number || "") +
+    "\nDu: " + reservation.check_in +
+    "\nAu: " + reservation.check_out +
+    "\nStatut: " + translateReservationStatus(reservation.status)
+  );
 }
 
 export default function Planning() {
@@ -155,9 +185,11 @@ export default function Planning() {
             <button className="btn btn-secondary" onClick={() => changeMonth(-1)}>
               Mois précédent
             </button>
+
             <div className="card" style={{ padding: "10px 14px" }}>
               <strong style={{ textTransform: "capitalize" }}>{monthLabel}</strong>
             </div>
+
             <button className="btn btn-secondary" onClick={() => changeMonth(1)}>
               Mois suivant
             </button>
@@ -167,12 +199,20 @@ export default function Planning() {
 
       <div className="card">
         <div className="table-wrap">
-          <table className="table" style={{ minWidth: 1600 }}>
+          <table className="table" style={{ minWidth: 2000 }}>
             <thead>
               <tr>
-                <th style={{ position: "sticky", left: 0, background: "#f8fbff", zIndex: 3 }}>
+                <th
+                  style={{
+                    position: "sticky",
+                    left: 0,
+                    background: "#f8fbff",
+                    zIndex: 3
+                  }}
+                >
                   Chambre
                 </th>
+
                 {days.map((day) => (
                   <th key={day.toISOString()}>
                     <div>{day.getDate()}</div>
@@ -216,24 +256,29 @@ export default function Planning() {
                         return <td key={dateStr}></td>;
                       }
 
-                      const style = getCellStyle(reservation.status);
+                      const style = getCellStyle(reservation, dateStr);
 
                       return (
                         <td key={dateStr}>
                           <div
+                            onClick={() => openReservation(reservation)}
                             style={{
                               ...style,
                               borderRadius: 10,
                               padding: 6,
-                              minWidth: 110
+                              minWidth: 110,
+                              cursor: "pointer",
+                              transition: "0.2s"
                             }}
                           >
                             <div style={{ fontWeight: 700, fontSize: 12 }}>
                               {reservation.clients_pms?.nom || "Client"}
                             </div>
+
                             <div className={getReservationBadgeClass(reservation.status)}>
                               {translateReservationStatus(reservation.status)}
                             </div>
+
                             <div className="helper" style={{ marginTop: 4 }}>
                               {reservation.check_in} → {reservation.check_out}
                             </div>
