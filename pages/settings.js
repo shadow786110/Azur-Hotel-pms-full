@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabaseClient";
 export default function Settings() {
   const [profile, setProfile] = useState(null);
   const [settings, setSettings] = useState({});
+  const [settingsId, setSettingsId] = useState(null);
 
   useEffect(() => {
     loadProfile();
@@ -28,42 +29,84 @@ export default function Settings() {
   }
 
   async function loadSettings() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("hotel_settings")
       .select("*")
-      .limit(1)
-      .single();
+      .order("id", { ascending: true })
+      .limit(1);
 
-    if (data) setSettings(data);
+    if (error) {
+      alert("Erreur chargement paramètres: " + error.message);
+      return;
+    }
+
+    if (data && data.length > 0) {
+      setSettings(data[0]);
+      setSettingsId(data[0].id);
+    }
   }
 
   async function saveSettings(e) {
-    e.preventDefault();
+    if (e) e.preventDefault();
 
-    const { error } = await supabase
-      .from("hotel_settings")
-      .upsert([settings]);
+    const payload = {
+      hotel_name: settings.hotel_name || "",
+      address: settings.address || "",
+      phone: settings.phone || "",
+      email: settings.email || "",
+      rib: settings.rib || "",
+      iban: settings.iban || "",
+      bic: settings.bic || "",
+      logo_url: settings.logo_url || "",
+      taxe_sejour_rate: Number(settings.taxe_sejour_rate || 5),
+      taxe_sejour_cap: Number(settings.taxe_sejour_cap || 4)
+    };
+
+    let error = null;
+
+    if (settingsId) {
+      const res = await supabase
+        .from("hotel_settings")
+        .update(payload)
+        .eq("id", settingsId);
+
+      error = res.error;
+    } else {
+      const res = await supabase
+        .from("hotel_settings")
+        .insert([payload])
+        .select()
+        .single();
+
+      error = res.error;
+
+      if (!error && res.data) {
+        setSettingsId(res.data.id);
+        setSettings(res.data);
+      }
+    }
 
     if (error) {
-      alert(error.message);
+      alert("Erreur sauvegarde: " + error.message);
       return;
     }
 
     alert("Paramètres sauvegardés");
+    loadSettings();
   }
 
   async function uploadLogo(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    const fileName = "logo.png";
+    const fileName = "logo-" + Date.now() + "-" + file.name;
 
-    const { error } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from("hotel-logo")
       .upload(fileName, file, { upsert: true });
 
-    if (error) {
-      alert("Erreur upload logo: " + error.message);
+    if (uploadError) {
+      alert("Erreur upload logo: " + uploadError.message);
       return;
     }
 
@@ -85,28 +128,36 @@ export default function Settings() {
               className="input"
               placeholder="Nom hôtel"
               value={settings.hotel_name || ""}
-              onChange={(e) => setSettings({ ...settings, hotel_name: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, hotel_name: e.target.value })
+              }
             />
 
             <input
               className="input"
               placeholder="Adresse"
               value={settings.address || ""}
-              onChange={(e) => setSettings({ ...settings, address: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, address: e.target.value })
+              }
             />
 
             <input
               className="input"
               placeholder="Téléphone"
               value={settings.phone || ""}
-              onChange={(e) => setSettings({ ...settings, phone: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, phone: e.target.value })
+              }
             />
 
             <input
               className="input"
               placeholder="Email"
               value={settings.email || ""}
-              onChange={(e) => setSettings({ ...settings, email: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, email: e.target.value })
+              }
             />
 
             <h3>Taxe de séjour</h3>
@@ -118,7 +169,10 @@ export default function Settings() {
                 placeholder="Taux %"
                 value={settings.taxe_sejour_rate || 5}
                 onChange={(e) =>
-                  setSettings({ ...settings, taxe_sejour_rate: e.target.value })
+                  setSettings({
+                    ...settings,
+                    taxe_sejour_rate: e.target.value
+                  })
                 }
               />
 
@@ -128,12 +182,17 @@ export default function Settings() {
                 placeholder="Plafond €"
                 value={settings.taxe_sejour_cap || 4}
                 onChange={(e) =>
-                  setSettings({ ...settings, taxe_sejour_cap: e.target.value })
+                  setSettings({
+                    ...settings,
+                    taxe_sejour_cap: e.target.value
+                  })
                 }
               />
             </div>
 
-            <button className="btn">Enregistrer</button>
+            <button className="btn" type="submit">
+              Enregistrer
+            </button>
           </form>
         </div>
 
@@ -155,24 +214,30 @@ export default function Settings() {
               className="input"
               placeholder="RIB"
               value={settings.rib || ""}
-              onChange={(e) => setSettings({ ...settings, rib: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, rib: e.target.value })
+              }
             />
 
             <input
               className="input"
               placeholder="IBAN"
               value={settings.iban || ""}
-              onChange={(e) => setSettings({ ...settings, iban: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, iban: e.target.value })
+              }
             />
 
             <input
               className="input"
               placeholder="BIC"
               value={settings.bic || ""}
-              onChange={(e) => setSettings({ ...settings, bic: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, bic: e.target.value })
+              }
             />
 
-            <button className="btn" onClick={saveSettings}>
+            <button className="btn" type="button" onClick={saveSettings}>
               Sauvegarder logo + banque
             </button>
           </div>
