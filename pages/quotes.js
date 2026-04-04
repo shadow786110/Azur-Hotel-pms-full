@@ -5,6 +5,10 @@ import { buildQuotePdf } from "../lib/pdfUtils";
 
 const VAT_OPTIONS = [0, 2.1, 8.5, 10, 20];
 
+function round2(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
 function makeLine() {
   return {
     label: "",
@@ -16,10 +20,6 @@ function makeLine() {
     total_tva: 0,
     total_ttc: 0
   };
-}
-
-function round2(value) {
-  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 }
 
 function computeLine(line) {
@@ -56,9 +56,9 @@ function computeTotals(lines) {
 }
 
 export default function Quotes() {
+  const [profile, setProfile] = useState(null);
   const [quotes, setQuotes] = useState([]);
   const [clients, setClients] = useState([]);
-  const [profile, setProfile] = useState(null);
   const [customerMode, setCustomerMode] = useState("existing");
 
   const [form, setForm] = useState({
@@ -77,6 +77,7 @@ export default function Quotes() {
   useEffect(() => {
     fetchAll();
     loadProfile();
+    loadNextNumber();
   }, []);
 
   async function loadProfile() {
@@ -93,6 +94,16 @@ export default function Quotes() {
       .single();
 
     setProfile(data || null);
+  }
+
+  async function loadNextNumber() {
+    const { data, error } = await supabase.rpc("next_document_number", {
+      p_doc_type: "quote"
+    });
+
+    if (!error && data) {
+      setForm((prev) => ({ ...prev, quote_number: data }));
+    }
   }
 
   async function fetchAll() {
@@ -126,19 +137,42 @@ export default function Quotes() {
     setCart(cart.filter((_, i) => i !== index));
   }
 
-  function resetForm() {
-    setForm({
-      quote_number: "",
-      client_id: "",
-      manual_client_name: "",
-      manual_client_email: "",
-      manual_client_phone: "",
-      manual_client_address: "",
-      validity_days: 30,
-      status: "draft"
+  async function saveQuotePdf(quoteRow, lines) {
+    const client = clients.find((c) => Number(c.id) === Number(quoteRow.client_id));
+
+    const blob = await buildQuotePdf({
+      quote_number: quoteRow.quote_number,
+      client_name: client?.nom || quoteRow.manual_client_name || "",
+      client_email: client?.email || quoteRow.manual_client_email || "",
+      client_phone: client?.telephone || quoteRow.manual_client_phone || "",
+      client_address: client?.adresse || quoteRow.manual_client_address || "",
+      status: quoteRow.status,
+      total_amount: Number(quoteRow.total_amount || 0),
+      validity_days: quoteRow.validity_days || 30,
+      lines: lines.map((line) => ({
+        ...line,
+        total_ht: Number(line.total_ht || 0),
+        total_ttc: Number(line.total_ttc || 0)
+      }))
     });
-    setCart([makeLine()]);
-    setCustomerMode("existing");
+
+    const fileName = `quote-${quoteRow.quote_number}.pdf`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("quotes-pdf")
+      .upload(fileName, blob, {
+        contentType: "application/pdf",
+        upsert: true
+      });
+
+    if (uploadError) throw new Error(uploadError.message);
+
+    const { error: updateError } = await supabase
+      .from("quotes_pms")
+      .update({ pdf_url: fileName })
+      .eq("id", quoteRow.id);
+
+    if (updateError) throw new Error(updateError.message);
   }
 
   async function handleSubmit(e) {
@@ -149,12 +183,12 @@ export default function Quotes() {
       .filter((line) => String(line.label || "").trim() !== "");
 
     if (computedLines.length === 0) {
-      alert("Ajoute au moins une prestation au devis");
+      alert("Ajoute au moins une prestation");
       return;
     }
 
     if (customerMode === "existing" && !form.client_id) {
-      alert("Choisir un client ou passer en client manuel");
+      alert("Choisir un client");
       return;
     }
 
@@ -212,115 +246,29 @@ export default function Quotes() {
       return;
     }
 
-    alert("Devis enregistré");
-    resetForm();
-    fetchAll();
-  }
-
-  async function updateStatus(id, status) {
-    const { error } = await supabase
-      .from("quotes_pms")
-      .update({ status })
-      .eq("id", id);
-
-    if (error) {
-      alert("Erreur statut devis: " + error.message);
-      return;
-    }
-
-    fetchAll();
-  }
-
-  async function deleteQuote(id) {
-    if (!profile || profile.role !== "admin") {
-      alert("Suppression réservée à l'admin");
-      return;
-    }
-
-    if (!confirm("Supprimer ce devis ?")) return;
-
-    await supabase.from("quote_custom_lines").delete().eq("quote_id", id);
-
-    const { error } = await supabase.from("quotes_pms").delete().eq("id", id);
-
-    if (error) {
-      alert("Erreur suppression devis: " + error.message);
-      return;
-    }
-
-    fetchAll();
-  }
-
-  async function convertQuoteToInvoice(quote) {
     try {
-      const { data: quoteLines, error: quoteLinesError } = await supabase
-        .from("quote_custom_lines")
-        .select("*")
-        .eq("quote_id", quote.id)
-        .order("id", { ascending: true });
-
-      if (quoteLinesError) {
-        alert("Erreur lecture lignes devis: " + quoteLinesError.message);
-        return;
-      }
-
-      const invoicePayload = {
-        invoice_number: `F-${quote.quote_number}`,
-        client_id: quote.client_id || null,
-        manual_client_name: quote.manual_client_name || null,
-        manual_client_email: quote.manual_client_email || null,
-        manual_client_phone: quote.manual_client_phone || null,
-        manual_client_address: quote.manual_client_address || null,
-        total_amount: Number(quote.total_amount || 0),
-        paid_amount: 0,
-        status: "draft",
-        payment_method: "Crédit",
-        notes: `Facture créée depuis devis ${quote.quote_number}`
-      };
-
-      const { data: insertedInvoice, error: invoiceError } = await supabase
-        .from("invoices_pms")
-        .insert([invoicePayload])
-        .select()
-        .single();
-
-      if (invoiceError) {
-        alert("Erreur conversion devis → facture : " + invoiceError.message);
-        return;
-      }
-
-      if (quoteLines?.length) {
-        const invoiceLines = quoteLines.map((line) => ({
-          invoice_id: insertedInvoice.id,
-          label: line.label,
-          quantity: Number(line.quantity || 0),
-          unit_price: Number(line.unit_price || 0),
-          vat_rate: Number(line.vat_rate || 0),
-          total_ht: Number(line.total_ht || 0),
-          total_tva: Number(line.total_tva || 0),
-          total_ttc: Number(line.total_ttc || 0)
-        }));
-
-        const { error: linesError } = await supabase
-          .from("invoice_custom_lines")
-          .insert(invoiceLines);
-
-        if (linesError) {
-          alert("Erreur lignes facture : " + linesError.message);
-          return;
-        }
-      }
-
-      await supabase
-        .from("quotes_pms")
-        .update({ status: "accepted" })
-        .eq("id", quote.id);
-
-      alert("Devis converti en facture");
-      fetchAll();
+      await saveQuotePdf(inserted, linesToInsert);
     } catch (err) {
-      alert("Erreur conversion : " + err.message);
+      alert("Erreur PDF devis: " + err.message);
+      return;
     }
+
+    alert("Devis enregistré avec PDF sauvegardé");
+
+    setForm({
+      quote_number: "",
+      client_id: "",
+      manual_client_name: "",
+      manual_client_email: "",
+      manual_client_phone: "",
+      manual_client_address: "",
+      validity_days: 30,
+      status: "draft"
+    });
+    setCart([makeLine()]);
+    setCustomerMode("existing");
+    fetchAll();
+    loadNextNumber();
   }
 
   async function loadLines(quoteId) {
@@ -330,65 +278,14 @@ export default function Quotes() {
       .eq("quote_id", quoteId)
       .order("id", { ascending: true });
 
-    return (data || []).map((line) => ({
-      ...line,
-      unit_price_ttc:
-        Number(line.quantity || 1) > 0
-          ? Number(line.total_ttc || 0) / Number(line.quantity || 1)
-          : 0
-    }));
+    return data || [];
   }
 
   async function generateQuotePdf(quote) {
     try {
-      const quoteLines = await loadLines(quote.id);
-
-      const clientName =
-        quote.clients_pms?.nom || quote.manual_client_name || "-";
-      const clientEmail =
-        quote.clients_pms?.email || quote.manual_client_email || "";
-      const clientPhone =
-        quote.clients_pms?.telephone || quote.manual_client_phone || "";
-      const clientAddress =
-        quote.clients_pms?.adresse || quote.manual_client_address || "";
-
-      const blob = await buildQuotePdf({
-        quote_number: quote.quote_number,
-        client_name: clientName,
-        client_email: clientEmail,
-        client_phone: clientPhone,
-        client_address: clientAddress,
-        status: translateQuoteStatus(quote.status),
-        total_amount: quote.total_amount,
-        validity_days: quote.validity_days || 30,
-        lines: quoteLines
-      });
-
-      const fileName = `quote-${quote.quote_number || quote.id}-${Date.now()}.pdf`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("quotes-pdf")
-        .upload(fileName, blob, {
-          contentType: "application/pdf",
-          upsert: true
-        });
-
-      if (uploadError) {
-        alert("Erreur upload PDF devis: " + uploadError.message);
-        return;
-      }
-
-      const { error: updateError } = await supabase
-        .from("quotes_pms")
-        .update({ pdf_url: fileName })
-        .eq("id", quote.id);
-
-      if (updateError) {
-        alert("Erreur enregistrement PDF: " + updateError.message);
-        return;
-      }
-
-      alert("PDF devis généré");
+      const lines = await loadLines(quote.id);
+      await saveQuotePdf(quote, lines);
+      alert("PDF devis généré et sauvegardé");
       fetchAll();
     } catch (err) {
       alert("Erreur PDF devis: " + err.message);
@@ -400,7 +297,7 @@ export default function Quotes() {
 
     const { data, error } = await supabase.storage
       .from("quotes-pdf")
-      .createSignedUrl(path, 60);
+      .createSignedUrl(path, 120);
 
     if (error) {
       alert("Erreur lecture PDF: " + error.message);
@@ -414,27 +311,15 @@ export default function Quotes() {
 
   return (
     <Layout title="Devis" profile={profile}>
-      <div className="grid grid-2">
+      <div className="grid grid-2" style={{ alignItems: "start" }}>
         <div className="card">
           <h2 className="section-title">Nouveau devis</h2>
 
           <form className="form-grid" onSubmit={handleSubmit}>
-            <input
-              className="input"
-              placeholder="Numéro devis"
-              value={form.quote_number}
-              onChange={(e) =>
-                setForm({ ...form, quote_number: e.target.value })
-              }
-              required
-            />
-
             <div className="btn-row">
               <button
                 type="button"
-                className={`btn ${
-                  customerMode === "existing" ? "" : "btn-secondary"
-                }`}
+                className={`btn ${customerMode === "existing" ? "" : "btn-secondary"}`}
                 onClick={() => setCustomerMode("existing")}
               >
                 Client existant
@@ -442,14 +327,19 @@ export default function Quotes() {
 
               <button
                 type="button"
-                className={`btn ${
-                  customerMode === "manual" ? "" : "btn-secondary"
-                }`}
+                className={`btn ${customerMode === "manual" ? "" : "btn-secondary"}`}
                 onClick={() => setCustomerMode("manual")}
               >
                 Client manuel
               </button>
             </div>
+
+            <input
+              className="input"
+              placeholder="N° devis auto"
+              value={form.quote_number}
+              readOnly
+            />
 
             {customerMode === "existing" ? (
               <select
@@ -465,7 +355,7 @@ export default function Quotes() {
                 ))}
               </select>
             ) : (
-              <>
+              <div className="grid grid-2">
                 <input
                   className="input"
                   placeholder="Nom client"
@@ -474,7 +364,6 @@ export default function Quotes() {
                     setForm({ ...form, manual_client_name: e.target.value })
                   }
                 />
-
                 <input
                   className="input"
                   placeholder="Email client"
@@ -483,7 +372,6 @@ export default function Quotes() {
                     setForm({ ...form, manual_client_email: e.target.value })
                   }
                 />
-
                 <input
                   className="input"
                   placeholder="Téléphone client"
@@ -492,46 +380,47 @@ export default function Quotes() {
                     setForm({ ...form, manual_client_phone: e.target.value })
                   }
                 />
-
-                <textarea
-                  className="textarea"
+                <input
+                  className="input"
                   placeholder="Adresse client"
                   value={form.manual_client_address}
                   onChange={(e) =>
                     setForm({ ...form, manual_client_address: e.target.value })
                   }
                 />
-              </>
+              </div>
             )}
 
-            <input
-              className="input"
-              type="number"
-              placeholder="Validité du devis (jours)"
-              value={form.validity_days}
-              onChange={(e) =>
-                setForm({ ...form, validity_days: e.target.value })
-              }
-            />
+            <div className="grid grid-2">
+              <input
+                className="input"
+                type="number"
+                placeholder="Validité (jours)"
+                value={form.validity_days}
+                onChange={(e) =>
+                  setForm({ ...form, validity_days: e.target.value })
+                }
+              />
 
-            <select
-              className="select"
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
-            >
-              <option value="draft">Brouillon</option>
-              <option value="sent">Envoyé</option>
-              <option value="accepted">Accepté</option>
-              <option value="refused">Refusé</option>
-            </select>
-
-            <hr className="soft" />
-
-            <h3 className="section-title">Panier des prestations</h3>
+              <select
+                className="select"
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+              >
+                <option value="draft">Brouillon</option>
+                <option value="sent">Envoyé</option>
+                <option value="accepted">Accepté</option>
+                <option value="refused">Refusé</option>
+              </select>
+            </div>
 
             {cart.map((line, index) => (
-              <div key={index} className="card" style={{ padding: 12 }}>
-                <div className="form-grid two">
+              <div
+                key={index}
+                className="card"
+                style={{ padding: 14, background: "#f8fbff", border: "1px solid #e4edf7" }}
+              >
+                <div className="grid grid-4">
                   <input
                     className="input"
                     placeholder="Désignation"
@@ -540,17 +429,15 @@ export default function Quotes() {
                       updateCartLine(index, "label", e.target.value)
                     }
                   />
-
                   <input
                     className="input"
                     type="number"
-                    placeholder="Quantité"
+                    placeholder="Qté"
                     value={line.quantity}
                     onChange={(e) =>
                       updateCartLine(index, "quantity", e.target.value)
                     }
                   />
-
                   <input
                     className="input"
                     type="number"
@@ -560,7 +447,6 @@ export default function Quotes() {
                       updateCartLine(index, "unit_price_ttc", e.target.value)
                     }
                   />
-
                   <select
                     className="select"
                     value={line.vat_rate}
@@ -570,7 +456,7 @@ export default function Quotes() {
                   >
                     {VAT_OPTIONS.map((vat) => (
                       <option key={vat} value={vat}>
-                        {vat}%
+                        TVA {vat}%
                       </option>
                     ))}
                   </select>
@@ -594,24 +480,22 @@ export default function Quotes() {
               </div>
             ))}
 
-            <div className="btn-row">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={addCartLine}
-              >
-                Ajouter prestation au panier
-              </button>
-            </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={addCartLine}
+            >
+              + Ajouter ligne
+            </button>
 
-            <div className="card" style={{ padding: 12 }}>
+            <div className="card" style={{ background: "#f4f9ff" }}>
               <strong>Total HT :</strong> {totals.total_ht.toFixed(2)} €<br />
               <strong>Total TVA :</strong> {totals.total_tva.toFixed(2)} €<br />
               <strong>Total TTC :</strong> {totals.total_ttc.toFixed(2)} €
             </div>
 
             <button className="btn" type="submit">
-              Valider le devis
+              Enregistrer le devis
             </button>
           </form>
         </div>
@@ -626,86 +510,44 @@ export default function Quotes() {
                   <th>N° devis</th>
                   <th>Client</th>
                   <th>Montant</th>
-                  <th>Validité</th>
                   <th>Statut</th>
                   <th>PDF</th>
-                  <th>Actions</th>
                 </tr>
               </thead>
-
               <tbody>
                 {quotes.map((quote) => (
                   <tr key={quote.id}>
                     <td>{quote.quote_number}</td>
-                    <td>
-                      {quote.clients_pms?.nom || quote.manual_client_name || "-"}
-                    </td>
+                    <td>{quote.clients_pms?.nom || quote.manual_client_name || "-"}</td>
                     <td>{Number(quote.total_amount || 0).toFixed(2)} €</td>
-                    <td>{quote.validity_days || 30} jours</td>
-                    <td>{translateQuoteStatus(quote.status)}</td>
+                    <td>{quote.status}</td>
                     <td>
                       <div className="btn-row">
                         <button
                           className="btn btn-secondary"
                           onClick={() => generateQuotePdf(quote)}
                         >
-                          Générer PDF
+                          PDF
                         </button>
-
                         {quote.pdf_url ? (
                           <button
                             className="btn btn-success"
                             onClick={() => viewPdf(quote.pdf_url)}
                           >
-                            Voir PDF
+                            Ouvrir
                           </button>
                         ) : (
-                          "Aucun"
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="btn-row">
-                        <button
-                          className="btn btn-secondary"
-                          onClick={() => updateStatus(quote.id, "sent")}
-                        >
-                          Envoyé
-                        </button>
-
-                        <button
-                          className="btn btn-success"
-                          onClick={() => updateStatus(quote.id, "accepted")}
-                        >
-                          Accepté
-                        </button>
-
-                        <button
-                          className="btn btn-success"
-                          onClick={() => convertQuoteToInvoice(quote)}
-                        >
-                          Convertir en facture
-                        </button>
-
-                        <button
-                          className="btn btn-danger"
-                          onClick={() => updateStatus(quote.id, "refused")}
-                        >
-                          Refusé
-                        </button>
-
-                        {profile?.role === "admin" && (
-                          <button
-                            className="btn btn-danger"
-                            onClick={() => deleteQuote(quote.id)}
-                          >
-                            Supprimer
-                          </button>
+                          <span className="helper">Aucun</span>
                         )}
                       </div>
                     </td>
                   </tr>
                 ))}
+                {quotes.length === 0 && (
+                  <tr>
+                    <td colSpan="5">Aucun devis.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -713,12 +555,4 @@ export default function Quotes() {
       </div>
     </Layout>
   );
-}
-
-function translateQuoteStatus(status) {
-  if (status === "draft") return "Brouillon";
-  if (status === "sent") return "Envoyé";
-  if (status === "accepted") return "Accepté";
-  if (status === "refused") return "Refusé";
-  return status;
 }
