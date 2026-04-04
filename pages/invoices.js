@@ -56,21 +56,11 @@ function computeTotals(lines) {
   );
 }
 
-function calcNights(checkIn, checkOut) {
-  if (!checkIn || !checkOut) return 0;
-  const start = new Date(checkIn);
-  const end = new Date(checkOut);
-  const diff = end - start;
-  if (isNaN(diff) || diff <= 0) return 0;
-  return Math.round(diff / (1000 * 60 * 60 * 24));
-}
-
 export default function Invoices() {
   const [profile, setProfile] = useState(null);
   const [invoices, setInvoices] = useState([]);
   const [clients, setClients] = useState([]);
   const [payments, setPayments] = useState([]);
-  const [reservations, setReservations] = useState([]);
   const [products, setProducts] = useState([]);
 
   const [customerMode, setCustomerMode] = useState("existing");
@@ -82,7 +72,6 @@ export default function Invoices() {
     manual_client_email: "",
     manual_client_phone: "",
     manual_client_address: "",
-    reservation_id: "",
     paid_amount: "",
     payment_method: "Esp",
     credit_used: "",
@@ -101,6 +90,7 @@ export default function Invoices() {
   useEffect(() => {
     fetchAll();
     loadProfile();
+    loadNextNumber();
   }, []);
 
   async function loadProfile() {
@@ -119,12 +109,21 @@ export default function Invoices() {
     setProfile(data || null);
   }
 
+  async function loadNextNumber() {
+    const { data, error } = await supabase.rpc("next_document_number", {
+      p_doc_type: "invoice"
+    });
+
+    if (!error && data) {
+      setForm((prev) => ({ ...prev, invoice_number: data }));
+    }
+  }
+
   async function fetchAll() {
     const [
       { data: invoicesData },
       { data: clientsData },
       { data: paymentsData },
-      { data: reservationsData },
       { data: productsData }
     ] = await Promise.all([
       supabase
@@ -133,17 +132,12 @@ export default function Invoices() {
         .order("id", { ascending: false }),
       supabase.from("clients_pms").select("*").order("nom", { ascending: true }),
       supabase.from("payments_pms").select("*").order("id", { ascending: false }),
-      supabase
-        .from("reservations_pms")
-        .select("*, clients_pms(id, nom, email, telephone, adresse, credit_balance), rooms(id, room_number, room_type)")
-        .order("id", { ascending: false }),
       supabase.from("products").select("*").order("name", { ascending: true })
     ]);
 
     setInvoices(invoicesData || []);
     setClients(clientsData || []);
     setPayments(paymentsData || []);
-    setReservations(reservationsData || []);
     setProducts(productsData || []);
   }
 
@@ -165,42 +159,6 @@ export default function Invoices() {
     setCart(cart.filter((_, i) => i !== index));
   }
 
-  function addQuickLine(type) {
-    if (type === "petit_dejeuner") {
-      setCart([
-        ...cart,
-        computeLine({
-          label: "Petit-déjeuner",
-          quantity: 1,
-          unit_price_ttc: 10,
-          vat_rate: 2.1,
-          product_id: null,
-          is_stock_item: false
-        })
-      ]);
-      return;
-    }
-
-    if (type === "navette") {
-      setCart([
-        ...cart,
-        computeLine({
-          label: "Navette",
-          quantity: 1,
-          unit_price_ttc: 25,
-          vat_rate: 8.5,
-          product_id: null,
-          is_stock_item: false
-        })
-      ]);
-      return;
-    }
-
-    if (type === "autre") {
-      setCart([...cart, makeLine()]);
-    }
-  }
-
   function addProductLine(productId) {
     const product = products.find((p) => Number(p.id) === Number(productId));
     if (!product) return;
@@ -216,42 +174,6 @@ export default function Invoices() {
         is_stock_item: true
       })
     ]);
-  }
-
-  function fillFromReservation(reservationId) {
-    const reservation = reservations.find(
-      (r) => Number(r.id) === Number(reservationId)
-    );
-    if (!reservation) return;
-
-    const nights = calcNights(reservation.check_in, reservation.check_out) || 1;
-
-    const roomLine = computeLine({
-      label: `Séjour chambre ${reservation.rooms?.room_number || ""} du ${reservation.check_in} au ${reservation.check_out} (${nights} nuit(s))`,
-      quantity: 1,
-      unit_price_ttc: Number(reservation.room_total_ttc || 0),
-      vat_rate: Number(reservation.vat_rate || 0),
-      product_id: null,
-      is_stock_item: false
-    });
-
-    const taxLine = computeLine({
-      label: "Taxe de séjour",
-      quantity: 1,
-      unit_price_ttc: Number(reservation.taxe_sejour_amount || 0),
-      vat_rate: 0,
-      product_id: null,
-      is_stock_item: false
-    });
-
-    setCustomerMode("existing");
-    setForm((prev) => ({
-      ...prev,
-      client_id: reservation.client_id ? String(reservation.client_id) : "",
-      reservation_id: String(reservation.id),
-      notes: `Facture issue de la réservation #${reservation.id}`
-    }));
-    setCart([roomLine, taxLine]);
   }
 
   async function applyStockOutputs(lines, invoiceId) {
@@ -292,6 +214,58 @@ export default function Invoices() {
 
       if (stockError) throw new Error(stockError.message);
     }
+  }
+
+  async function loadLines(invoiceId) {
+    const { data } = await supabase
+      .from("invoice_custom_lines")
+      .select("*")
+      .eq("invoice_id", invoiceId)
+      .order("id", { ascending: true });
+
+    return data || [];
+  }
+
+  async function saveInvoicePdf(invoiceRow, lines) {
+    const client = clients.find((c) => Number(c.id) === Number(invoiceRow.client_id));
+
+    const blob = await buildInvoicePdf({
+      invoice_number: invoiceRow.invoice_number,
+      created_at: invoiceRow.created_at
+        ? new Date(invoiceRow.created_at).toLocaleDateString("fr-FR")
+        : new Date().toLocaleDateString("fr-FR"),
+      client_name: client?.nom || invoiceRow.manual_client_name || "",
+      client_email: client?.email || invoiceRow.manual_client_email || "",
+      client_phone: client?.telephone || invoiceRow.manual_client_phone || "",
+      client_address: client?.adresse || invoiceRow.manual_client_address || "",
+      status: invoiceRow.status,
+      total_amount: Number(invoiceRow.total_amount || 0),
+      paid_amount: Number(invoiceRow.paid_amount || 0),
+      payment_method: invoiceRow.payment_method,
+      lines: lines.map((line) => ({
+        ...line,
+        total_ht: Number(line.total_ht || 0),
+        total_ttc: Number(line.total_ttc || 0)
+      }))
+    });
+
+    const fileName = `invoice-${invoiceRow.invoice_number}.pdf`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("invoices-pdf")
+      .upload(fileName, blob, {
+        contentType: "application/pdf",
+        upsert: true
+      });
+
+    if (uploadError) throw new Error(uploadError.message);
+
+    const { error: updateError } = await supabase
+      .from("invoices_pms")
+      .update({ pdf_url: fileName })
+      .eq("id", invoiceRow.id);
+
+    if (updateError) throw new Error(updateError.message);
   }
 
   async function handleInvoiceSubmit(e) {
@@ -336,13 +310,12 @@ export default function Invoices() {
         customerMode === "manual" ? form.manual_client_phone : null,
       manual_client_address:
         customerMode === "manual" ? form.manual_client_address : null,
-      reservation_id: form.reservation_id ? Number(form.reservation_id) : null,
       total_amount: Number(totals.total_ttc || 0),
       paid_amount: accountedPaid,
       status,
       payment_method: form.payment_method,
       credit_used: creditUsed,
-      source: form.reservation_id ? "reservation" : "manual",
+      source: "manual",
       notes: form.notes
     };
 
@@ -361,7 +334,9 @@ export default function Invoices() {
       invoice_id: insertedInvoice.id,
       label: line.label,
       quantity: Number(line.quantity || 0),
-      unit_price: Number((Number(line.total_ht || 0) / Math.max(1, Number(line.quantity || 1))) || 0),
+      unit_price: Number(
+        (Number(line.total_ht || 0) / Math.max(1, Number(line.quantity || 1))) || 0
+      ),
       vat_rate: Number(line.vat_rate || 0),
       total_ht: Number(line.total_ht || 0),
       total_tva: Number(line.total_tva || 0),
@@ -382,43 +357,10 @@ export default function Invoices() {
       if (status === "paid") {
         await applyStockOutputs(computedLines, insertedInvoice.id);
       }
+      await saveInvoicePdf(insertedInvoice, linesToInsert);
     } catch (err) {
-      alert("Erreur stock: " + err.message);
+      alert("Erreur après création: " + err.message);
       return;
-    }
-
-    if (customerMode === "existing" && form.client_id) {
-      const client = clients.find((c) => Number(c.id) === Number(form.client_id));
-      const currentCredit = Number(client?.credit_balance || 0);
-
-      if (creditUsed > 0) {
-        await supabase
-          .from("clients_pms")
-          .update({
-            credit_balance: Math.max(0, currentCredit - creditUsed)
-          })
-          .eq("id", Number(form.client_id));
-      }
-
-      const due = Number(totals.total_ttc || 0) - accountedPaid;
-
-      if (due > 0) {
-        await supabase.from("client_credits").insert([
-          {
-            client_id: Number(form.client_id),
-            invoice_id: insertedInvoice.id,
-            amount: due,
-            status: "open"
-          }
-        ]);
-
-        await supabase
-          .from("clients_pms")
-          .update({
-            credit_balance: Math.max(0, currentCredit - creditUsed) + due
-          })
-          .eq("id", Number(form.client_id));
-      }
     }
 
     if (paidAmount > 0) {
@@ -427,14 +369,13 @@ export default function Invoices() {
           invoice_id: insertedInvoice.id,
           amount: paidAmount,
           method: form.payment_method,
-          reference: form.reservation_id
-            ? `Reservation-${form.reservation_id}`
-            : "Paiement initial"
+          reference: "Paiement initial"
         }
       ]);
     }
 
-    alert("Facture enregistrée");
+    alert("Facture enregistrée avec PDF sauvegardé");
+
     setForm({
       invoice_number: "",
       client_id: "",
@@ -442,7 +383,6 @@ export default function Invoices() {
       manual_client_email: "",
       manual_client_phone: "",
       manual_client_address: "",
-      reservation_id: "",
       paid_amount: "",
       payment_method: "Esp",
       credit_used: "",
@@ -451,168 +391,14 @@ export default function Invoices() {
     setCart([makeLine()]);
     setCustomerMode("existing");
     fetchAll();
-  }
-
-  async function handlePaymentSubmit(e) {
-    e.preventDefault();
-
-    const amount = Number(paymentForm.amount || 0);
-    const invoiceId = Number(paymentForm.invoice_id);
-
-    const { error } = await supabase.from("payments_pms").insert([
-      {
-        invoice_id: invoiceId,
-        amount,
-        method: paymentForm.method,
-        reference: paymentForm.reference
-      }
-    ]);
-
-    if (error) {
-      alert("Erreur paiement: " + error.message);
-      return;
-    }
-
-    const invoice = invoices.find((i) => i.id === invoiceId);
-    const newPaid = Number(invoice?.paid_amount || 0) + amount;
-    const total = Number(invoice?.total_amount || 0);
-
-    let status = "partial";
-    if (newPaid <= 0) status = "draft";
-    if (newPaid >= total) status = "paid";
-
-    await supabase
-      .from("invoices_pms")
-      .update({
-        paid_amount: newPaid,
-        status
-      })
-      .eq("id", invoiceId);
-
-    if (newPaid >= total) {
-      const lines = await loadLines(invoiceId);
-      try {
-        await applyStockOutputs(
-          lines.map((line) => ({
-            ...line,
-            is_stock_item: !!line.product_id
-          })),
-          invoiceId
-        );
-      } catch (err) {
-        alert("Paiement enregistré, mais erreur stock: " + err.message);
-      }
-
-      await supabase
-        .from("client_credits")
-        .update({ status: "closed", amount: 0 })
-        .eq("invoice_id", invoiceId);
-    }
-
-    alert("Paiement enregistré");
-    setPaymentForm({
-      invoice_id: "",
-      amount: "",
-      method: "Esp",
-      reference: ""
-    });
-    fetchAll();
-  }
-
-  async function deleteInvoice(id) {
-    if (!profile || profile.role !== "admin") {
-      alert("Suppression réservée à l'admin");
-      return;
-    }
-
-    if (!confirm("Supprimer cette facture ?")) return;
-
-    await supabase.from("payments_pms").delete().eq("invoice_id", id);
-    await supabase.from("invoice_custom_lines").delete().eq("invoice_id", id);
-    await supabase.from("client_credits").delete().eq("invoice_id", id);
-
-    const { error } = await supabase.from("invoices_pms").delete().eq("id", id);
-    if (error) {
-      alert("Erreur suppression facture: " + error.message);
-      return;
-    }
-
-    fetchAll();
-  }
-
-  async function loadLines(invoiceId) {
-    const { data } = await supabase
-      .from("invoice_custom_lines")
-      .select("*")
-      .eq("invoice_id", invoiceId)
-      .order("id", { ascending: true });
-
-    return (data || []).map((line) => {
-      const quantity = Number(line.quantity || 0);
-      const totalTtc = Number(line.total_ttc || 0);
-      const unitPriceTtc = quantity > 0 ? totalTtc / quantity : totalTtc;
-
-      return {
-        ...line,
-        unit_price_ttc: round2(unitPriceTtc)
-      };
-    });
+    loadNextNumber();
   }
 
   async function generateInvoicePdf(invoice) {
     try {
-      const invoiceLines = await loadLines(invoice.id);
-
-      const clientName =
-        invoice.clients_pms?.nom || invoice.manual_client_name || "-";
-      const clientEmail =
-        invoice.clients_pms?.email || invoice.manual_client_email || "";
-      const clientPhone =
-        invoice.clients_pms?.telephone || invoice.manual_client_phone || "";
-      const clientAddress =
-        invoice.clients_pms?.adresse || invoice.manual_client_address || "";
-
-      const blob = await buildInvoicePdf({
-        invoice_number: invoice.invoice_number,
-        created_at: invoice.created_at
-          ? new Date(invoice.created_at).toLocaleDateString("fr-FR")
-          : new Date().toLocaleDateString("fr-FR"),
-        client_name: clientName,
-        client_email: clientEmail,
-        client_phone: clientPhone,
-        client_address: clientAddress,
-        status: translateInvoiceStatus(invoice.status),
-        total_amount: Number(invoice.total_amount || 0),
-        paid_amount: Number(invoice.paid_amount || 0),
-        payment_method: invoice.payment_method,
-        lines: invoiceLines
-      });
-
-      const fileName = `invoice-${invoice.invoice_number || invoice.id}-${Date.now()}.pdf`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("invoices-pdf")
-        .upload(fileName, blob, {
-          contentType: "application/pdf",
-          upsert: true
-        });
-
-      if (uploadError) {
-        alert("Erreur upload PDF facture: " + uploadError.message);
-        return;
-      }
-
-      const { error: updateError } = await supabase
-        .from("invoices_pms")
-        .update({ pdf_url: fileName })
-        .eq("id", invoice.id);
-
-      if (updateError) {
-        alert("Erreur enregistrement PDF: " + updateError.message);
-        return;
-      }
-
-      alert("PDF facture généré");
+      const lines = await loadLines(invoice.id);
+      await saveInvoicePdf(invoice, lines);
+      alert("PDF facture généré et sauvegardé");
       fetchAll();
     } catch (err) {
       alert("Erreur PDF facture: " + err.message);
@@ -624,7 +410,7 @@ export default function Invoices() {
 
     const { data, error } = await supabase.storage
       .from("invoices-pdf")
-      .createSignedUrl(path, 60);
+      .createSignedUrl(path, 120);
 
     if (error) {
       alert("Erreur lecture PDF: " + error.message);
@@ -636,11 +422,6 @@ export default function Invoices() {
 
   const totals = useMemo(() => computeTotals(cart.map(computeLine)), [cart]);
 
-  const selectedClient =
-    customerMode === "existing" && form.client_id
-      ? clients.find((c) => Number(c.id) === Number(form.client_id))
-      : null;
-
   return (
     <Layout title="Factures" profile={profile}>
       <div className="grid grid-2" style={{ alignItems: "start" }}>
@@ -648,34 +429,6 @@ export default function Invoices() {
           <h2 className="section-title">Nouvelle facture</h2>
 
           <form className="form-grid" onSubmit={handleInvoiceSubmit}>
-            <div className="grid grid-2">
-              <input
-                className="input"
-                placeholder="N° facture"
-                value={form.invoice_number}
-                onChange={(e) =>
-                  setForm({ ...form, invoice_number: e.target.value })
-                }
-                required
-              />
-
-              <select
-                className="select"
-                value={form.reservation_id}
-                onChange={(e) => {
-                  setForm({ ...form, reservation_id: e.target.value });
-                  if (e.target.value) fillFromReservation(e.target.value);
-                }}
-              >
-                <option value="">Charger depuis réservation</option>
-                {reservations.map((reservation) => (
-                  <option key={reservation.id} value={reservation.id}>
-                    #{reservation.id} - {reservation.clients_pms?.nom || "-"} - chambre {reservation.rooms?.room_number || "-"}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             <div className="btn-row">
               <button
                 type="button"
@@ -694,28 +447,28 @@ export default function Invoices() {
               </button>
             </div>
 
-            {customerMode === "existing" ? (
-              <>
-                <select
-                  className="select"
-                  value={form.client_id}
-                  onChange={(e) =>
-                    setForm({ ...form, client_id: e.target.value })
-                  }
-                >
-                  <option value="">Choisir un client</option>
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.nom}
-                    </option>
-                  ))}
-                </select>
+            <input
+              className="input"
+              placeholder="N° facture auto"
+              value={form.invoice_number}
+              readOnly
+            />
 
-                <div className="helper">
-                  Crédit disponible :{" "}
-                  {Number(selectedClient?.credit_balance || 0).toFixed(2)} €
-                </div>
-              </>
+            {customerMode === "existing" ? (
+              <select
+                className="select"
+                value={form.client_id}
+                onChange={(e) =>
+                  setForm({ ...form, client_id: e.target.value })
+                }
+              >
+                <option value="">Choisir un client</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.nom}
+                  </option>
+                ))}
+              </select>
             ) : (
               <div className="grid grid-2">
                 <input
@@ -726,7 +479,6 @@ export default function Invoices() {
                     setForm({ ...form, manual_client_name: e.target.value })
                   }
                 />
-
                 <input
                   className="input"
                   placeholder="Email client"
@@ -735,7 +487,6 @@ export default function Invoices() {
                     setForm({ ...form, manual_client_email: e.target.value })
                   }
                 />
-
                 <input
                   className="input"
                   placeholder="Téléphone client"
@@ -744,7 +495,6 @@ export default function Invoices() {
                     setForm({ ...form, manual_client_phone: e.target.value })
                   }
                 />
-
                 <input
                   className="input"
                   placeholder="Adresse client"
@@ -755,32 +505,6 @@ export default function Invoices() {
                 />
               </div>
             )}
-
-            <div className="btn-row">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => addQuickLine("petit_dejeuner")}
-              >
-                + Petit-déjeuner
-              </button>
-
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => addQuickLine("navette")}
-              >
-                + Navette
-              </button>
-
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => addQuickLine("autre")}
-              >
-                + Autre prestation
-              </button>
-            </div>
 
             <select
               className="select"
@@ -815,7 +539,6 @@ export default function Invoices() {
                       updateCartLine(index, "label", e.target.value)
                     }
                   />
-
                   <input
                     className="input"
                     type="number"
@@ -825,7 +548,6 @@ export default function Invoices() {
                       updateCartLine(index, "quantity", e.target.value)
                     }
                   />
-
                   <input
                     className="input"
                     type="number"
@@ -835,7 +557,6 @@ export default function Invoices() {
                       updateCartLine(index, "unit_price_ttc", e.target.value)
                     }
                   />
-
                   <select
                     className="select"
                     value={line.vat_rate}
@@ -852,8 +573,7 @@ export default function Invoices() {
                 </div>
 
                 <div className="helper" style={{ marginTop: 10 }}>
-                  {line.is_stock_item ? "Produit stock" : "Prestation"} | HT :{" "}
-                  {Number(line.total_ht || 0).toFixed(2)} € | TVA :{" "}
+                  HT : {Number(line.total_ht || 0).toFixed(2)} € | TVA :{" "}
                   {Number(line.total_tva || 0).toFixed(2)} € | TTC :{" "}
                   {Number(line.total_ttc || 0).toFixed(2)} €
                 </div>
@@ -875,10 +595,10 @@ export default function Invoices() {
               className="btn btn-secondary"
               onClick={addCartLine}
             >
-              + Ajouter ligne vide
+              + Ajouter ligne
             </button>
 
-            <div className="grid grid-3">
+            <div className="grid grid-2">
               <select
                 className="select"
                 value={form.payment_method}
@@ -902,20 +622,6 @@ export default function Invoices() {
                   setForm({ ...form, paid_amount: e.target.value })
                 }
               />
-
-              {customerMode === "existing" ? (
-                <input
-                  className="input"
-                  type="number"
-                  placeholder="Crédit utilisé"
-                  value={form.credit_used}
-                  onChange={(e) =>
-                    setForm({ ...form, credit_used: e.target.value })
-                  }
-                />
-              ) : (
-                <div></div>
-              )}
             </div>
 
             <textarea
@@ -937,197 +643,61 @@ export default function Invoices() {
           </form>
         </div>
 
-        <div className="grid">
-          <div className="card">
-            <h2 className="section-title">Encaisser un paiement</h2>
+        <div className="card">
+          <h2 className="section-title">Liste des factures</h2>
 
-            <form className="form-grid" onSubmit={handlePaymentSubmit}>
-              <select
-                className="select"
-                value={paymentForm.invoice_id}
-                onChange={(e) =>
-                  setPaymentForm({
-                    ...paymentForm,
-                    invoice_id: e.target.value
-                  })
-                }
-                required
-              >
-                <option value="">Choisir une facture</option>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>N° facture</th>
+                  <th>Client</th>
+                  <th>Montant</th>
+                  <th>Payé</th>
+                  <th>Statut</th>
+                  <th>PDF</th>
+                </tr>
+              </thead>
+              <tbody>
                 {invoices.map((invoice) => (
-                  <option key={invoice.id} value={invoice.id}>
-                    {invoice.invoice_number} -{" "}
-                    {invoice.clients_pms?.nom || invoice.manual_client_name || "-"}
-                  </option>
-                ))}
-              </select>
-
-              <input
-                className="input"
-                type="number"
-                placeholder="Montant payé"
-                value={paymentForm.amount}
-                onChange={(e) =>
-                  setPaymentForm({
-                    ...paymentForm,
-                    amount: e.target.value
-                  })
-                }
-                required
-              />
-
-              <select
-                className="select"
-                value={paymentForm.method}
-                onChange={(e) =>
-                  setPaymentForm({
-                    ...paymentForm,
-                    method: e.target.value
-                  })
-                }
-              >
-                {PAYMENT_METHODS.map((method) => (
-                  <option key={method} value={method}>
-                    {method}
-                  </option>
-                ))}
-              </select>
-
-              <input
-                className="input"
-                placeholder="Référence"
-                value={paymentForm.reference}
-                onChange={(e) =>
-                  setPaymentForm({
-                    ...paymentForm,
-                    reference: e.target.value
-                  })
-                }
-              />
-
-              <button className="btn" type="submit">
-                Enregistrer paiement
-              </button>
-            </form>
-          </div>
-
-          <div className="card">
-            <h2 className="section-title">Liste des factures</h2>
-
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>N° facture</th>
-                    <th>Client</th>
-                    <th>Montant</th>
-                    <th>Payé</th>
-                    <th>Statut</th>
-                    <th>PDF</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {invoices.map((invoice) => (
-                    <tr key={invoice.id}>
-                      <td>{invoice.invoice_number}</td>
-                      <td>
-                        {invoice.clients_pms?.nom ||
-                          invoice.manual_client_name ||
-                          "-"}
-                      </td>
-                      <td>{Number(invoice.total_amount || 0).toFixed(2)} €</td>
-                      <td>{Number(invoice.paid_amount || 0).toFixed(2)} €</td>
-                      <td>{translateInvoiceStatus(invoice.status)}</td>
-                      <td>
-                        <div className="btn-row">
+                  <tr key={invoice.id}>
+                    <td>{invoice.invoice_number}</td>
+                    <td>{invoice.clients_pms?.nom || invoice.manual_client_name || "-"}</td>
+                    <td>{Number(invoice.total_amount || 0).toFixed(2)} €</td>
+                    <td>{Number(invoice.paid_amount || 0).toFixed(2)} €</td>
+                    <td>{invoice.status}</td>
+                    <td>
+                      <div className="btn-row">
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => generateInvoicePdf(invoice)}
+                        >
+                          PDF
+                        </button>
+                        {invoice.pdf_url ? (
                           <button
-                            className="btn btn-secondary"
-                            onClick={() => generateInvoicePdf(invoice)}
+                            className="btn btn-success"
+                            onClick={() => viewPdf(invoice.pdf_url)}
                           >
-                            PDF
+                            Ouvrir
                           </button>
-
-                          {invoice.pdf_url ? (
-                            <button
-                              className="btn btn-success"
-                              onClick={() => viewPdf(invoice.pdf_url)}
-                            >
-                              Ouvrir
-                            </button>
-                          ) : (
-                            <span className="helper">Aucun</span>
-                          )}
-                        </div>
-                      </td>
-                      <td>
-                        {profile?.role === "admin" && (
-                          <button
-                            className="btn btn-danger"
-                            onClick={() => deleteInvoice(invoice.id)}
-                          >
-                            Supprimer
-                          </button>
+                        ) : (
+                          <span className="helper">Aucun</span>
                         )}
-                      </td>
-                    </tr>
-                  ))}
-
-                  {invoices.length === 0 && (
-                    <tr>
-                      <td colSpan="7">Aucune facture.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="card">
-            <h2 className="section-title">Paiements enregistrés</h2>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Facture</th>
-                    <th>Montant</th>
-                    <th>Méthode</th>
-                    <th>Référence</th>
-                    <th>Date</th>
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {payments.map((payment) => (
-                    <tr key={payment.id}>
-                      <td>{payment.invoice_id}</td>
-                      <td>{Number(payment.amount || 0).toFixed(2)} €</td>
-                      <td>{payment.method || "-"}</td>
-                      <td>{payment.reference || "-"}</td>
-                      <td>{payment.paid_at}</td>
-                    </tr>
-                  ))}
-
-                  {payments.length === 0 && (
-                    <tr>
-                      <td colSpan="5">Aucun paiement enregistré.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                ))}
+                {invoices.length === 0 && (
+                  <tr>
+                    <td colSpan="6">Aucune facture.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
     </Layout>
   );
-}
-
-function translateInvoiceStatus(status) {
-  if (status === "draft") return "Brouillon";
-  if (status === "sent") return "Envoyée";
-  if (status === "paid") return "Payée";
-  if (status === "partial") return "Partielle";
-  if (status === "cancelled") return "Annulée";
-  return status;
 }
