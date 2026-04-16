@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Layout from "../components/Layout";
 import { supabase } from "../lib/supabaseClient";
-import { buildQuotePdf } from "../lib/pdfUtils";
+import { buildQuotePdf, buildInvoicePdf } from "../lib/pdfUtils";
 
 const VAT_OPTIONS = [0, 2.1, 8.5, 10, 20];
 
@@ -69,7 +69,8 @@ export default function Quotes() {
     manual_client_phone: "",
     manual_client_address: "",
     validity_days: 30,
-    status: "draft"
+    status: "draft",
+    notes: ""
   });
 
   const [cart, setCart] = useState([makeLine()]);
@@ -77,7 +78,7 @@ export default function Quotes() {
   useEffect(() => {
     fetchAll();
     loadProfile();
-    loadNextNumber();
+    loadNextQuoteNumber();
   }, []);
 
   async function loadProfile() {
@@ -96,7 +97,7 @@ export default function Quotes() {
     setProfile(data || null);
   }
 
-  async function loadNextNumber() {
+  async function loadNextQuoteNumber() {
     const { data, error } = await supabase.rpc("next_document_number", {
       p_doc_type: "quote"
     });
@@ -137,6 +138,20 @@ export default function Quotes() {
     setCart(cart.filter((_, i) => i !== index));
   }
 
+  async function loadQuoteLines(quoteId) {
+    const { data, error } = await supabase
+      .from("quote_custom_lines")
+      .select("*")
+      .eq("quote_id", quoteId)
+      .order("id", { ascending: true });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data || [];
+  }
+
   async function saveQuotePdf(quoteRow, lines) {
     const client = clients.find((c) => Number(c.id) === Number(quoteRow.client_id));
 
@@ -171,6 +186,48 @@ export default function Quotes() {
       .from("quotes_pms")
       .update({ pdf_url: fileName })
       .eq("id", quoteRow.id);
+
+    if (updateError) throw new Error(updateError.message);
+  }
+
+  async function saveInvoicePdf(invoiceRow, lines) {
+    const client = clients.find((c) => Number(c.id) === Number(invoiceRow.client_id));
+
+    const blob = await buildInvoicePdf({
+      invoice_number: invoiceRow.invoice_number,
+      created_at: invoiceRow.created_at
+        ? new Date(invoiceRow.created_at).toLocaleDateString("fr-FR")
+        : new Date().toLocaleDateString("fr-FR"),
+      client_name: client?.nom || invoiceRow.manual_client_name || "",
+      client_email: client?.email || invoiceRow.manual_client_email || "",
+      client_phone: client?.telephone || invoiceRow.manual_client_phone || "",
+      client_address: client?.adresse || invoiceRow.manual_client_address || "",
+      status: invoiceRow.status,
+      total_amount: Number(invoiceRow.total_amount || 0),
+      paid_amount: Number(invoiceRow.paid_amount || 0),
+      payment_method: invoiceRow.payment_method,
+      lines: lines.map((line) => ({
+        ...line,
+        total_ht: Number(line.total_ht || 0),
+        total_ttc: Number(line.total_ttc || 0)
+      }))
+    });
+
+    const fileName = `invoice-${invoiceRow.invoice_number}.pdf`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("invoices-pdf")
+      .upload(fileName, blob, {
+        contentType: "application/pdf",
+        upsert: true
+      });
+
+    if (uploadError) throw new Error(uploadError.message);
+
+    const { error: updateError } = await supabase
+      .from("invoices_pms")
+      .update({ pdf_url: fileName })
+      .eq("id", invoiceRow.id);
 
     if (updateError) throw new Error(updateError.message);
   }
@@ -212,7 +269,8 @@ export default function Quotes() {
         customerMode === "manual" ? form.manual_client_address : null,
       total_amount: totals.total_ttc,
       validity_days: Number(form.validity_days || 30),
-      status: form.status
+      status: form.status,
+      notes: form.notes || null
     };
 
     const { data: inserted, error } = await supabase
@@ -263,27 +321,18 @@ export default function Quotes() {
       manual_client_phone: "",
       manual_client_address: "",
       validity_days: 30,
-      status: "draft"
+      status: "draft",
+      notes: ""
     });
     setCart([makeLine()]);
     setCustomerMode("existing");
     fetchAll();
-    loadNextNumber();
-  }
-
-  async function loadLines(quoteId) {
-    const { data } = await supabase
-      .from("quote_custom_lines")
-      .select("*")
-      .eq("quote_id", quoteId)
-      .order("id", { ascending: true });
-
-    return data || [];
+    loadNextQuoteNumber();
   }
 
   async function generateQuotePdf(quote) {
     try {
-      const lines = await loadLines(quote.id);
+      const lines = await loadQuoteLines(quote.id);
       await saveQuotePdf(quote, lines);
       alert("PDF devis généré et sauvegardé");
       fetchAll();
@@ -292,11 +341,94 @@ export default function Quotes() {
     }
   }
 
-  async function viewPdf(path) {
+  async function convertQuoteToInvoice(quote) {
+    try {
+      const lines = await loadQuoteLines(quote.id);
+
+      if (!lines || lines.length === 0) {
+        alert("Ce devis ne contient aucune ligne");
+        return;
+      }
+
+      const { data: invoiceNumber, error: numError } = await supabase.rpc(
+        "next_document_number",
+        { p_doc_type: "invoice" }
+      );
+
+      if (numError) {
+        alert("Erreur numérotation facture: " + numError.message);
+        return;
+      }
+
+      const invoicePayload = {
+        invoice_number: invoiceNumber,
+        client_id: quote.client_id || null,
+        manual_client_name: quote.manual_client_name || null,
+        manual_client_email: quote.manual_client_email || null,
+        manual_client_phone: quote.manual_client_phone || null,
+        manual_client_address: quote.manual_client_address || null,
+        total_amount: Number(quote.total_amount || 0),
+        paid_amount: 0,
+        status: "draft",
+        payment_method: null,
+        source: "quote",
+        notes: `Convertie depuis devis ${quote.quote_number}`
+      };
+
+      const { data: insertedInvoice, error: invoiceError } = await supabase
+        .from("invoices_pms")
+        .insert([invoicePayload])
+        .select()
+        .single();
+
+      if (invoiceError) {
+        alert("Erreur création facture: " + invoiceError.message);
+        return;
+      }
+
+      const invoiceLines = lines.map((line) => ({
+        invoice_id: insertedInvoice.id,
+        label: line.label,
+        quantity: Number(line.quantity || 0),
+        unit_price: Number(line.unit_price || 0),
+        vat_rate: Number(line.vat_rate || 0),
+        total_ht: Number(line.total_ht || 0),
+        total_tva: Number(line.total_tva || 0),
+        total_ttc: Number(line.total_ttc || 0)
+      }));
+
+      const { error: lineError } = await supabase
+        .from("invoice_custom_lines")
+        .insert(invoiceLines);
+
+      if (lineError) {
+        alert("Erreur lignes facture: " + lineError.message);
+        return;
+      }
+
+      const { error: quoteUpdateError } = await supabase
+        .from("quotes_pms")
+        .update({ status: "accepted" })
+        .eq("id", quote.id);
+
+      if (quoteUpdateError) {
+        alert("Facture créée, mais statut devis non mis à jour: " + quoteUpdateError.message);
+      }
+
+      await saveInvoicePdf(insertedInvoice, invoiceLines);
+
+      alert(`Facture ${invoiceNumber} créée depuis le devis`);
+      fetchAll();
+    } catch (err) {
+      alert("Erreur conversion devis/facture: " + err.message);
+    }
+  }
+
+  async function viewPdf(bucket, path) {
     if (!path) return;
 
     const { data, error } = await supabase.storage
-      .from("quotes-pdf")
+      .from(bucket)
       .createSignedUrl(path, 120);
 
     if (error) {
@@ -414,6 +546,13 @@ export default function Quotes() {
               </select>
             </div>
 
+            <textarea
+              className="textarea"
+              placeholder="Notes devis"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+
             {cart.map((line, index) => (
               <div
                 key={index}
@@ -512,6 +651,7 @@ export default function Quotes() {
                   <th>Montant</th>
                   <th>Statut</th>
                   <th>PDF</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -532,7 +672,7 @@ export default function Quotes() {
                         {quote.pdf_url ? (
                           <button
                             className="btn btn-success"
-                            onClick={() => viewPdf(quote.pdf_url)}
+                            onClick={() => viewPdf("quotes-pdf", quote.pdf_url)}
                           >
                             Ouvrir
                           </button>
@@ -541,11 +681,19 @@ export default function Quotes() {
                         )}
                       </div>
                     </td>
+                    <td>
+                      <button
+                        className="btn"
+                        onClick={() => convertQuoteToInvoice(quote)}
+                      >
+                        Convertir en facture
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {quotes.length === 0 && (
                   <tr>
-                    <td colSpan="5">Aucun devis.</td>
+                    <td colSpan="6">Aucun devis.</td>
                   </tr>
                 )}
               </tbody>
