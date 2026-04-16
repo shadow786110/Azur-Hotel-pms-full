@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import Layout from "../components/Layout";
 import { supabase } from "../lib/supabaseClient";
 
-const VAT_OPTIONS = [0, 2.1, 8.5, 10, 20];
+function round2(v) {
+  return Math.round((Number(v || 0) + Number.EPSILON) * 100) / 100;
+}
 
-function calcNights(checkIn, checkOut) {
+function nightsBetween(checkIn, checkOut) {
   if (!checkIn || !checkOut) return 0;
   const start = new Date(checkIn);
   const end = new Date(checkOut);
@@ -13,98 +15,45 @@ function calcNights(checkIn, checkOut) {
   return Math.round(diff / (1000 * 60 * 60 * 24));
 }
 
-function round2(value) {
-  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
-}
-
-function computeReservationAmounts({
-  nightly_price_ttc,
-  vat_rate,
-  adults,
-  children,
-  taxable_adults,
-  check_in,
-  check_out,
-  taxe_sejour_rate,
-  taxe_sejour_cap
-}) {
-  const nights = calcNights(check_in, check_out);
-  const priceTtcNight = Number(nightly_price_ttc || 0);
-  const vat = Number(vat_rate || 0);
-  const adultsCount = Number(adults || 0);
-  const childrenCount = Number(children || 0);
-  const taxableAdultsCount = Number(taxable_adults || 0);
-
-  const totalOccupants = adultsCount + childrenCount;
-
-  const nightly_price_ht =
-    vat > 0 ? priceTtcNight / (1 + vat / 100) : priceTtcNight;
-
-  const room_total_ttc = priceTtcNight * nights;
-  const room_total_ht = nightly_price_ht * nights;
-  const room_total_tva = room_total_ttc - room_total_ht;
-
-  let cout_ht_par_personne_par_nuit = 0;
-  if (nights > 0 && totalOccupants > 0) {
-    cout_ht_par_personne_par_nuit = room_total_ht / nights / totalOccupants;
-  }
-
-  const taux = Number(taxe_sejour_rate || 0) / 100;
-  const cap = Number(taxe_sejour_cap || 0);
-
-  const taxe_unitaire_brute = cout_ht_par_personne_par_nuit * taux;
-  const taxe_unitaire = Math.min(taxe_unitaire_brute, cap);
-
-  const taxe_sejour_amount = taxe_unitaire * taxableAdultsCount * nights;
-  const total_amount = room_total_ttc + taxe_sejour_amount;
-
-  return {
-    nights,
-    totalOccupants,
-    nightly_price_ht: round2(nightly_price_ht),
-    room_total_ht: round2(room_total_ht),
-    room_total_tva: round2(room_total_tva),
-    room_total_ttc: round2(room_total_ttc),
-    cout_ht_par_personne_par_nuit: round2(cout_ht_par_personne_par_nuit),
-    taxe_unitaire_brute: round2(taxe_unitaire_brute),
-    taxe_unitaire: round2(taxe_unitaire),
-    taxe_sejour_amount: round2(taxe_sejour_amount),
-    total_amount: round2(total_amount)
-  };
-}
-
 export default function Reservations() {
   const [profile, setProfile] = useState(null);
-  const [reservations, setReservations] = useState([]);
   const [clients, setClients] = useState([]);
   const [rooms, setRooms] = useState([]);
-  const [settings, setSettings] = useState(null);
+  const [reservations, setReservations] = useState([]);
+  const [hotelSettings, setHotelSettings] = useState(null);
+
+  const [clientMode, setClientMode] = useState("existing");
 
   const [form, setForm] = useState({
+    reservation_number: "",
     client_id: "",
+    manual_client_name: "",
+    manual_client_email: "",
+    manual_client_phone: "",
+    manual_client_address: "",
+    manual_client_id_doc: "",
     room_id: "",
     check_in: "",
     check_out: "",
     adults: 1,
     children: 0,
-    taxable_adults: 1,
-    status: "pending",
-    source: "",
-    nightly_price_ttc: "",
+    adults_taxable: 1,
+    room_price_ttc_per_night: "",
     vat_rate: 2.1,
-    paid_amount: "",
+    status: "pending",
     notes: ""
   });
 
-  const [moveForm, setMoveForm] = useState({
+  const [changeRoomForm, setChangeRoomForm] = useState({
     reservation_id: "",
     new_room_id: "",
     note: ""
   });
 
   useEffect(() => {
-    fetchAll();
+    loadAll();
     loadProfile();
+    loadNextReservationNumber();
   }, []);
 
   async function loadProfile() {
@@ -123,602 +72,696 @@ export default function Reservations() {
     setProfile(data || null);
   }
 
-  async function fetchAll() {
-    await Promise.all([
-      fetchReservations(),
-      fetchClients(),
-      fetchRooms(),
-      fetchSettings()
+  async function loadNextReservationNumber() {
+    const { data, error } = await supabase.rpc("next_document_number", {
+      p_doc_type: "reservation"
+    });
+
+    if (!error && data) {
+      setForm((prev) => ({ ...prev, reservation_number: data }));
+    }
+  }
+
+  async function loadAll() {
+    const [
+      { data: clientsData },
+      { data: roomsData },
+      { data: reservationsData },
+      { data: hotelData }
+    ] = await Promise.all([
+      supabase.from("clients_pms").select("*").order("nom", { ascending: true }),
+      supabase.from("rooms").select("*").order("room_number", { ascending: true }),
+      supabase
+        .from("reservations_pms")
+        .select("*, clients_pms(id, nom, client_code), rooms(id, room_number, room_type)")
+        .order("id", { ascending: false }),
+      supabase.from("hotel_settings").select("*").order("id", { ascending: true }).limit(1)
     ]);
-  }
 
-  async function fetchReservations() {
-    const { data } = await supabase
-      .from("reservations_pms")
-      .select("*, clients_pms(id, nom, email, telephone, adresse, credit_balance), rooms(id, room_number, room_type)")
-      .order("id", { ascending: false });
-
-    setReservations(data || []);
-  }
-
-  async function fetchClients() {
-    const { data } = await supabase
-      .from("clients_pms")
-      .select("*")
-      .order("nom", { ascending: true });
-
-    setClients(data || []);
-  }
-
-  async function fetchRooms() {
-    const { data } = await supabase
-      .from("rooms")
-      .select("*")
-      .order("room_number", { ascending: true });
-
-    setRooms(data || []);
-  }
-
-  async function fetchSettings() {
-    const { data } = await supabase
-      .from("hotel_settings")
-      .select("*")
-      .order("id", { ascending: true })
-      .limit(1)
-      .single();
-
-    setSettings(data || null);
+    setClients(clientsData || []);
+    setRooms(roomsData || []);
+    setReservations(reservationsData || []);
+    setHotelSettings((hotelData && hotelData[0]) || null);
   }
 
   const computed = useMemo(() => {
-    return computeReservationAmounts({
-      nightly_price_ttc: form.nightly_price_ttc,
-      vat_rate: form.vat_rate,
-      adults: form.adults,
-      children: form.children,
-      taxable_adults: form.taxable_adults,
-      check_in: form.check_in,
-      check_out: form.check_out,
-      taxe_sejour_rate: settings?.taxe_sejour_rate || 0,
-      taxe_sejour_cap: settings?.taxe_sejour_cap || 0
-    });
-  }, [form, settings]);
+    const nights = nightsBetween(form.check_in, form.check_out);
+    const adults = Number(form.adults || 0);
+    const adultsTaxable = Number(form.adults_taxable || 0);
+    const roomPriceTtcPerNight = Number(form.room_price_ttc_per_night || 0);
+    const vatRate = Number(form.vat_rate || 0);
+
+    const roomTotalTtc = round2(roomPriceTtcPerNight * nights);
+    const roomTotalHt =
+      vatRate > 0 ? round2(roomTotalTtc / (1 + vatRate / 100)) : roomTotalTtc;
+    const totalTva = round2(roomTotalTtc - roomTotalHt);
+
+    const taxeRate = Number(hotelSettings?.taxe_sejour_rate || 5);
+    const taxeCap = Number(hotelSettings?.taxe_sejour_cap || 4);
+
+    const coutTtcParPersNuit =
+      adults > 0 && nights > 0 ? roomTotalTtc / adults / nights : 0;
+
+    const taxeUnitaireBrute = round2((coutTtcParPersNuit * taxeRate) / 100);
+    const taxeUnitairePlafonnee = Math.min(taxeUnitaireBrute, taxeCap);
+    const taxeSejourAmount = round2(taxeUnitairePlafonnee * adultsTaxable * nights);
+
+    const totalReservation = round2(roomTotalTtc + taxeSejourAmount);
+
+    return {
+      nights,
+      roomTotalHt,
+      roomTotalTtc,
+      totalTva,
+      coutTtcParPersNuit: round2(coutTtcParPersNuit),
+      taxeUnitaireBrute,
+      taxeUnitairePlafonnee: round2(taxeUnitairePlafonnee),
+      taxeSejourAmount,
+      totalReservation
+    };
+  }, [form, hotelSettings]);
+
+  async function createManualClientIfNeeded() {
+    if (clientMode === "existing") {
+      return Number(form.client_id);
+    }
+
+    if (!form.manual_client_name.trim()) {
+      throw new Error("Nom client obligatoire");
+    }
+
+    const { data: clientCode, error: codeError } = await supabase.rpc(
+      "next_document_number",
+      { p_doc_type: "client" }
+    );
+
+    if (codeError) throw new Error(codeError.message);
+
+    const payload = {
+      client_code: clientCode,
+      nom: form.manual_client_name,
+      email: form.manual_client_email || null,
+      telephone: form.manual_client_phone || null,
+      adresse: form.manual_client_address || null,
+      id_document_url: form.manual_client_id_doc || null,
+      credit_balance: 0
+    };
+
+    const { data, error } = await supabase
+      .from("clients_pms")
+      .insert([payload])
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    return data.id;
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
 
-    const amounts = computeReservationAmounts({
-      nightly_price_ttc: form.nightly_price_ttc,
-      vat_rate: form.vat_rate,
-      adults: form.adults,
-      children: form.children,
-      taxable_adults: form.taxable_adults,
-      check_in: form.check_in,
-      check_out: form.check_out,
-      taxe_sejour_rate: settings?.taxe_sejour_rate || 0,
-      taxe_sejour_cap: settings?.taxe_sejour_cap || 0
-    });
+    if (!form.room_id) {
+      alert("Choisir une chambre");
+      return;
+    }
 
-    const { error } = await supabase.from("reservations_pms").insert([
-      {
-        client_id: Number(form.client_id),
+    if (!form.check_in || !form.check_out) {
+      alert("Choisir les dates");
+      return;
+    }
+
+    if (computed.nights <= 0) {
+      alert("Le séjour doit comporter au moins 1 nuit");
+      return;
+    }
+
+    if (!form.reservation_number) {
+      alert("Numéro réservation absent");
+      return;
+    }
+
+    try {
+      const clientId = await createManualClientIfNeeded();
+
+      const payload = {
+        reservation_number: form.reservation_number,
+        client_id: clientId,
         room_id: Number(form.room_id),
         check_in: form.check_in,
         check_out: form.check_out,
-        adults: Number(form.adults),
-        children: Number(form.children),
-        taxable_adults: Number(form.taxable_adults),
-        total_occupants: Number(amounts.totalOccupants || 0),
-        status: form.status,
-        source: form.source,
-        nightly_price_ttc: Number(form.nightly_price_ttc || 0),
+        adults: Number(form.adults || 0),
+        children: Number(form.children || 0),
+        adults_taxable: Number(form.adults_taxable || 0),
+        room_total_ttc: computed.roomTotalTtc,
         vat_rate: Number(form.vat_rate || 0),
-        room_total_ht: Number(amounts.room_total_ht || 0),
-        room_total_tva: Number(amounts.room_total_tva || 0),
-        room_total_ttc: Number(amounts.room_total_ttc || 0),
-        taxe_sejour_amount: Number(amounts.taxe_sejour_amount || 0),
-        total_amount: Number(amounts.total_amount || 0),
-        paid_amount: Number(form.paid_amount || 0),
-        notes: form.notes
-      }
-    ]);
+        taxe_sejour_amount: computed.taxeSejourAmount,
+        total_amount: computed.totalReservation,
+        status: form.status,
+        notes: form.notes || null
+      };
 
-    if (error) {
-      alert("Erreur réservation: " + error.message);
+      const { error } = await supabase.from("reservations_pms").insert([payload]);
+
+      if (error) {
+        alert("Erreur réservation: " + error.message);
+        return;
+      }
+
+      alert("Réservation enregistrée");
+
+      setForm({
+        reservation_number: "",
+        client_id: "",
+        manual_client_name: "",
+        manual_client_email: "",
+        manual_client_phone: "",
+        manual_client_address: "",
+        manual_client_id_doc: "",
+        room_id: "",
+        check_in: "",
+        check_out: "",
+        adults: 1,
+        children: 0,
+        adults_taxable: 1,
+        room_price_ttc_per_night: "",
+        vat_rate: 2.1,
+        status: "pending",
+        notes: ""
+      });
+
+      setClientMode("existing");
+      await loadAll();
+      await loadNextReservationNumber();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function createInvoiceFromReservation(reservation) {
+    const { data: invoiceNumber, error: numError } = await supabase.rpc(
+      "next_document_number",
+      { p_doc_type: "invoice" }
+    );
+
+    if (numError) {
+      alert("Erreur numérotation facture: " + numError.message);
       return;
     }
 
-    if (form.status === "checked_in") {
-      await supabase
-        .from("rooms")
-        .update({ status: "occupied" })
-        .eq("id", Number(form.room_id));
+    const totalAmount = Number(reservation.total_amount || 0);
+
+    const { data: insertedInvoice, error: invoiceError } = await supabase
+      .from("invoices_pms")
+      .insert([
+        {
+          invoice_number: invoiceNumber,
+          client_id: reservation.client_id,
+          reservation_id: reservation.id,
+          total_amount: totalAmount,
+          paid_amount: 0,
+          status: "draft",
+          payment_method: null,
+          source: "reservation",
+          notes: reservation.notes || `Facture issue de ${reservation.reservation_number || reservation.id}`
+        }
+      ])
+      .select()
+      .single();
+
+    if (invoiceError) {
+      alert("Erreur création facture: " + invoiceError.message);
+      return;
     }
 
-    alert("Réservation ajoutée");
+    const lines = [
+      {
+        invoice_id: insertedInvoice.id,
+        label: `Séjour chambre ${reservation.rooms?.room_number || ""}`,
+        quantity: 1,
+        unit_price: Number(reservation.room_total_ttc || 0),
+        vat_rate: Number(reservation.vat_rate || 0),
+        total_ht:
+          Number(reservation.vat_rate || 0) > 0
+            ? round2(
+                Number(reservation.room_total_ttc || 0) /
+                  (1 + Number(reservation.vat_rate || 0) / 100)
+              )
+            : Number(reservation.room_total_ttc || 0),
+        total_tva:
+          Number(reservation.room_total_ttc || 0) -
+          (Number(reservation.vat_rate || 0) > 0
+            ? round2(
+                Number(reservation.room_total_ttc || 0) /
+                  (1 + Number(reservation.vat_rate || 0) / 100)
+              )
+            : Number(reservation.room_total_ttc || 0)),
+        total_ttc: Number(reservation.room_total_ttc || 0)
+      },
+      {
+        invoice_id: insertedInvoice.id,
+        label: "Taxe de séjour",
+        quantity: 1,
+        unit_price: Number(reservation.taxe_sejour_amount || 0),
+        vat_rate: 0,
+        total_ht: Number(reservation.taxe_sejour_amount || 0),
+        total_tva: 0,
+        total_ttc: Number(reservation.taxe_sejour_amount || 0)
+      }
+    ];
 
-    setForm({
-      client_id: "",
-      room_id: "",
-      check_in: "",
-      check_out: "",
-      adults: 1,
-      children: 0,
-      taxable_adults: 1,
-      status: "pending",
-      source: "",
-      nightly_price_ttc: "",
-      vat_rate: 2.1,
-      paid_amount: "",
-      notes: ""
-    });
+    const { error: lineError } = await supabase
+      .from("invoice_custom_lines")
+      .insert(lines);
 
-    fetchAll();
+    if (lineError) {
+      alert("Erreur lignes facture: " + lineError.message);
+      return;
+    }
+
+    alert(`Facture ${invoiceNumber} créée`);
   }
 
-  async function updateReservationStatus(reservation, newStatus) {
+  async function updateReservationStatus(id, status) {
     const { error } = await supabase
       .from("reservations_pms")
-      .update({ status: newStatus })
-      .eq("id", reservation.id);
+      .update({ status })
+      .eq("id", id);
 
     if (error) {
-      alert("Erreur statut réservation: " + error.message);
+      alert("Erreur statut: " + error.message);
       return;
     }
 
-    if (newStatus === "checked_in") {
-      await supabase
-        .from("rooms")
-        .update({ status: "occupied" })
-        .eq("id", reservation.room_id);
-    }
-
-    if (newStatus === "checked_out") {
-      await supabase
-        .from("rooms")
-        .update({ status: "dirty" })
-        .eq("id", reservation.room_id);
-    }
-
-    if (newStatus === "cancelled") {
-      await supabase
-        .from("rooms")
-        .update({ status: "available" })
-        .eq("id", reservation.room_id);
-    }
-
-    fetchAll();
+    loadAll();
   }
 
-  async function moveRoom(e) {
+  async function changeRoomDuringStay(e) {
     e.preventDefault();
 
-    const reservation = reservations.find(
-      (r) => Number(r.id) === Number(moveForm.reservation_id)
-    );
-    if (!reservation) {
-      alert("Réservation introuvable");
+    if (!changeRoomForm.reservation_id || !changeRoomForm.new_room_id) {
+      alert("Choisir réservation et nouvelle chambre");
       return;
     }
 
-    const oldRoomId = reservation.room_id;
-    const newRoomId = Number(moveForm.new_room_id);
-
-    const { error: updateReservationError } = await supabase
+    const { error } = await supabase
       .from("reservations_pms")
-      .update({ room_id: newRoomId })
-      .eq("id", reservation.id);
+      .update({
+        room_id: Number(changeRoomForm.new_room_id),
+        notes: changeRoomForm.note || null
+      })
+      .eq("id", Number(changeRoomForm.reservation_id));
 
-    if (updateReservationError) {
-      alert("Erreur changement chambre: " + updateReservationError.message);
+    if (error) {
+      alert("Erreur changement de chambre: " + error.message);
       return;
     }
 
-    await supabase
-      .from("rooms")
-      .update({ status: "dirty" })
-      .eq("id", oldRoomId);
-
-    await supabase
-      .from("rooms")
-      .update({ status: "occupied" })
-      .eq("id", newRoomId);
-
-    await supabase.from("reservation_room_moves").insert([
-      {
-        reservation_id: reservation.id,
-        old_room_id: oldRoomId,
-        new_room_id: newRoomId,
-        note: moveForm.note
-      }
-    ]);
-
-    alert("Chambre changée");
-    setMoveForm({
+    alert("Chambre modifiée");
+    setChangeRoomForm({
       reservation_id: "",
       new_room_id: "",
       note: ""
     });
-
-    fetchAll();
-  }
-
-  async function createInvoiceFromReservation(reservation) {
-    try {
-      const { data: client } = await supabase
-        .from("clients_pms")
-        .select("*")
-        .eq("id", reservation.client_id)
-        .single();
-
-      const invoicePayload = {
-        invoice_number: `RES-${reservation.id}-${Date.now()}`,
-        client_id: reservation.client_id,
-        total_amount: Number(reservation.total_amount || 0),
-        paid_amount: Number(reservation.paid_amount || 0),
-        status:
-          Number(reservation.paid_amount || 0) >= Number(reservation.total_amount || 0)
-            ? "paid"
-            : Number(reservation.paid_amount || 0) > 0
-              ? "partial"
-              : "draft",
-        payment_method: "Crédit",
-        notes: `Facture créée automatiquement depuis réservation #${reservation.id}`
-      };
-
-      const { data: insertedInvoice, error: invoiceError } = await supabase
-        .from("invoices_pms")
-        .insert([invoicePayload])
-        .select()
-        .single();
-
-      if (invoiceError) {
-        alert("Erreur création facture: " + invoiceError.message);
-        return;
-      }
-
-      const nights = calcNights(reservation.check_in, reservation.check_out) || 1;
-      const lineLabel = `Séjour chambre ${reservation.rooms?.room_number || ""} du ${reservation.check_in} au ${reservation.check_out} (${nights} nuit(s))`;
-
-      await supabase.from("invoice_custom_lines").insert([
-        {
-          invoice_id: insertedInvoice.id,
-          label: lineLabel,
-          quantity: 1,
-          unit_price: Number(reservation.room_total_ht || 0),
-          vat_rate: Number(reservation.vat_rate || 0),
-          total_ht: Number(reservation.room_total_ht || 0),
-          total_tva: Number(reservation.room_total_tva || 0),
-          total_ttc: Number(reservation.room_total_ttc || 0)
-        },
-        {
-          invoice_id: insertedInvoice.id,
-          label: "Taxe de séjour",
-          quantity: 1,
-          unit_price: Number(reservation.taxe_sejour_amount || 0),
-          vat_rate: 0,
-          total_ht: Number(reservation.taxe_sejour_amount || 0),
-          total_tva: 0,
-          total_ttc: Number(reservation.taxe_sejour_amount || 0)
-        }
-      ]);
-
-      const due =
-        Number(reservation.total_amount || 0) - Number(reservation.paid_amount || 0);
-
-      if (due > 0 && client) {
-        await supabase
-          .from("clients_pms")
-          .update({
-            credit_balance: Number(client.credit_balance || 0) + due
-          })
-          .eq("id", reservation.client_id);
-      }
-
-      alert("Facture créée automatiquement");
-      fetchAll();
-    } catch (err) {
-      alert("Erreur facture depuis réservation: " + err.message);
-    }
+    loadAll();
   }
 
   return (
     <Layout title="Réservations" profile={profile}>
-      <div className="grid">
+      <div className="grid grid-2" style={{ alignItems: "start" }}>
         <div className="card">
           <h2 className="section-title">Nouvelle réservation</h2>
 
-          <form className="form-grid two" onSubmit={handleSubmit}>
-            <select
-              className="select"
-              value={form.client_id}
-              onChange={(e) => setForm({ ...form, client_id: e.target.value })}
-              required
-            >
-              <option value="">Choisir un client</option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.nom}
-                </option>
-              ))}
-            </select>
-
-            <select
-              className="select"
-              value={form.room_id}
-              onChange={(e) => setForm({ ...form, room_id: e.target.value })}
-              required
-            >
-              <option value="">Choisir une chambre</option>
-              {rooms.map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.room_number} - {room.room_type} ({translateRoomStatus(room.status)})
-                </option>
-              ))}
-            </select>
-
+          <form className="form-grid" onSubmit={handleSubmit}>
             <input
               className="input"
-              type="date"
-              value={form.check_in}
-              onChange={(e) => setForm({ ...form, check_in: e.target.value })}
-              required
+              placeholder="N° réservation auto"
+              value={form.reservation_number}
+              readOnly
             />
 
-            <input
-              className="input"
-              type="date"
-              value={form.check_out}
-              onChange={(e) => setForm({ ...form, check_out: e.target.value })}
-              required
-            />
+            <div className="btn-row">
+              <button
+                type="button"
+                className={`btn ${clientMode === "existing" ? "" : "btn-secondary"}`}
+                onClick={() => setClientMode("existing")}
+              >
+                Client existant
+              </button>
 
-            <input
-              className="input"
-              type="number"
-              placeholder="Adultes"
-              value={form.adults}
-              onChange={(e) => setForm({ ...form, adults: e.target.value })}
-            />
+              <button
+                type="button"
+                className={`btn ${clientMode === "manual" ? "" : "btn-secondary"}`}
+                onClick={() => setClientMode("manual")}
+              >
+                Nouveau client
+              </button>
+            </div>
 
-            <input
-              className="input"
-              type="number"
-              placeholder="Enfants"
-              value={form.children}
-              onChange={(e) => setForm({ ...form, children: e.target.value })}
-            />
+            {clientMode === "existing" ? (
+              <select
+                className="select"
+                value={form.client_id}
+                onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+              >
+                <option value="">Choisir un client</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.client_code ? `${client.client_code} - ` : ""}
+                    {client.nom}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="grid grid-2">
+                <input
+                  className="input"
+                  placeholder="Nom client"
+                  value={form.manual_client_name}
+                  onChange={(e) =>
+                    setForm({ ...form, manual_client_name: e.target.value })
+                  }
+                />
 
-            <input
-              className="input"
-              type="number"
-              placeholder="Adultes assujettis taxe séjour"
-              value={form.taxable_adults}
-              onChange={(e) => setForm({ ...form, taxable_adults: e.target.value })}
-            />
+                <input
+                  className="input"
+                  placeholder="Email client"
+                  value={form.manual_client_email}
+                  onChange={(e) =>
+                    setForm({ ...form, manual_client_email: e.target.value })
+                  }
+                />
+
+                <input
+                  className="input"
+                  placeholder="Téléphone client"
+                  value={form.manual_client_phone}
+                  onChange={(e) =>
+                    setForm({ ...form, manual_client_phone: e.target.value })
+                  }
+                />
+
+                <input
+                  className="input"
+                  placeholder="Adresse client"
+                  value={form.manual_client_address}
+                  onChange={(e) =>
+                    setForm({ ...form, manual_client_address: e.target.value })
+                  }
+                />
+
+                <input
+                  className="input"
+                  placeholder="Lien / pièce identité"
+                  value={form.manual_client_id_doc}
+                  onChange={(e) =>
+                    setForm({ ...form, manual_client_id_doc: e.target.value })
+                  }
+                />
+              </div>
+            )}
+
+            <div className="grid grid-2">
+              <select
+                className="select"
+                value={form.room_id}
+                onChange={(e) => setForm({ ...form, room_id: e.target.value })}
+              >
+                <option value="">Choisir une chambre</option>
+                {rooms.map((room) => (
+                  <option key={room.id} value={room.id}>
+                    Chambre {room.room_number} - {room.room_type || "-"}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                className="select"
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+              >
+                <option value="pending">En attente</option>
+                <option value="confirmed">Confirmée</option>
+                <option value="checked_in">Check-in</option>
+                <option value="checked_out">Check-out</option>
+                <option value="cancelled">Annulée</option>
+              </select>
+            </div>
+
+            <div className="grid grid-2">
+              <input
+                className="input"
+                type="date"
+                value={form.check_in}
+                onChange={(e) => setForm({ ...form, check_in: e.target.value })}
+              />
+
+              <input
+                className="input"
+                type="date"
+                value={form.check_out}
+                onChange={(e) => setForm({ ...form, check_out: e.target.value })}
+              />
+            </div>
+
+            <div className="grid grid-4">
+              <input
+                className="input"
+                type="number"
+                placeholder="Adultes"
+                value={form.adults}
+                onChange={(e) => setForm({ ...form, adults: e.target.value })}
+              />
+
+              <input
+                className="input"
+                type="number"
+                placeholder="Enfants"
+                value={form.children}
+                onChange={(e) => setForm({ ...form, children: e.target.value })}
+              />
+
+              <input
+                className="input"
+                type="number"
+                placeholder="Adultes taxables"
+                value={form.adults_taxable}
+                onChange={(e) =>
+                  setForm({ ...form, adults_taxable: e.target.value })
+                }
+              />
+
+              <input
+                className="input"
+                type="number"
+                placeholder="TVA %"
+                value={form.vat_rate}
+                onChange={(e) => setForm({ ...form, vat_rate: e.target.value })}
+              />
+            </div>
 
             <input
               className="input"
               type="number"
               placeholder="Prix chambre TTC / nuit"
-              value={form.nightly_price_ttc}
-              onChange={(e) => setForm({ ...form, nightly_price_ttc: e.target.value })}
+              value={form.room_price_ttc_per_night}
+              onChange={(e) =>
+                setForm({ ...form, room_price_ttc_per_night: e.target.value })
+              }
             />
 
-            <select
-              className="select"
-              value={form.vat_rate}
-              onChange={(e) => setForm({ ...form, vat_rate: e.target.value })}
-            >
-              {VAT_OPTIONS.map((vat) => (
-                <option key={vat} value={vat}>
-                  {vat}% TVA
-                </option>
-              ))}
-            </select>
+            <div className="card" style={{ background: "#f4f9ff" }}>
+              <strong>Nuits :</strong> {computed.nights}
+              <br />
+              <strong>Occupants totaux :</strong>{" "}
+              {Number(form.adults || 0) + Number(form.children || 0)}
+              <br />
+              <strong>Prix HT / nuit :</strong>{" "}
+              {computed.nights > 0
+                ? round2(computed.roomTotalHt / computed.nights).toFixed(2)
+                : "0.00"}{" "}
+              €
+              <br />
+              <strong>Total HT chambre :</strong> {computed.roomTotalHt.toFixed(2)} €
+              <br />
+              <strong>Total TVA chambre :</strong> {computed.totalTva.toFixed(2)} €
+              <br />
+              <strong>Total TTC chambre :</strong> {computed.roomTotalTtc.toFixed(2)} €
+              <br />
+              <strong>Coût TTC / personne / nuit :</strong>{" "}
+              {computed.coutTtcParPersNuit.toFixed(2)} €
+              <br />
+              <strong>Taxe unitaire brute :</strong>{" "}
+              {computed.taxeUnitaireBrute.toFixed(2)} €
+              <br />
+              <strong>Taxe unitaire plafonnée :</strong>{" "}
+              {computed.taxeUnitairePlafonnee.toFixed(2)} €
+              <br />
+              <strong>Taxe de séjour totale :</strong>{" "}
+              {computed.taxeSejourAmount.toFixed(2)} €
+              <br />
+              <strong>Total réservation :</strong>{" "}
+              {computed.totalReservation.toFixed(2)} €
+            </div>
 
-            <select
-              className="select"
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
-            >
-              <option value="pending">En attente</option>
-              <option value="confirmed">Confirmée</option>
-              <option value="checked_in">Check-in direct</option>
-              <option value="cancelled">Annulée</option>
-            </select>
-
-            <input
-              className="input"
-              placeholder="Source"
-              value={form.source}
-              onChange={(e) => setForm({ ...form, source: e.target.value })}
+            <textarea
+              className="textarea"
+              placeholder="Notes"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
 
-            <input
-              className="input"
-              type="number"
-              placeholder="Montant déjà payé"
-              value={form.paid_amount}
-              onChange={(e) => setForm({ ...form, paid_amount: e.target.value })}
-            />
-
-            <div className="card" style={{ gridColumn: "1 / -1", padding: 12 }}>
-              <strong>Taux taxe séjour :</strong> {Number(settings?.taxe_sejour_rate || 0).toFixed(2)} %<br />
-              <strong>Plafond taxe séjour :</strong> {Number(settings?.taxe_sejour_cap || 0).toFixed(2)} €<br />
-              <strong>Nuits :</strong> {computed.nights}<br />
-              <strong>Occupants totaux :</strong> {computed.totalOccupants}<br />
-              <strong>Prix HT / nuit :</strong> {computed.nightly_price_ht.toFixed(2)} €<br />
-              <strong>Total HT chambre :</strong> {computed.room_total_ht.toFixed(2)} €<br />
-              <strong>Total TVA chambre :</strong> {computed.room_total_tva.toFixed(2)} €<br />
-              <strong>Total TTC chambre :</strong> {computed.room_total_ttc.toFixed(2)} €<br />
-              <strong>Coût HT / personne / nuit :</strong> {computed.cout_ht_par_personne_par_nuit.toFixed(2)} €<br />
-              <strong>Taxe unitaire brute :</strong> {computed.taxe_unitaire_brute.toFixed(2)} €<br />
-              <strong>Taxe unitaire plafonnée :</strong> {computed.taxe_unitaire.toFixed(2)} €<br />
-              <strong>Taxe de séjour totale :</strong> {computed.taxe_sejour_amount.toFixed(2)} €<br />
-              <strong>Total réservation :</strong> {computed.total_amount.toFixed(2)} €
-            </div>
-
-            <div style={{ gridColumn: "1 / -1" }}>
-              <textarea
-                className="textarea"
-                placeholder="Notes"
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              />
-            </div>
-
-            <div style={{ gridColumn: "1 / -1" }}>
-              <button className="btn" type="submit">
-                Enregistrer
-              </button>
-            </div>
+            <button className="btn" type="submit">
+              Enregistrer la réservation
+            </button>
           </form>
         </div>
 
-        <div className="card">
-          <h2 className="section-title">Changer de chambre pendant le séjour</h2>
+        <div className="grid">
+          <div className="card">
+            <h2 className="section-title">Changer de chambre pendant le séjour</h2>
 
-          <form className="form-grid two" onSubmit={moveRoom}>
-            <select
-              className="select"
-              value={moveForm.reservation_id}
-              onChange={(e) => setMoveForm({ ...moveForm, reservation_id: e.target.value })}
-              required
-            >
-              <option value="">Choisir une réservation</option>
-              {reservations.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.clients_pms?.nom || "-"} - chambre {r.rooms?.room_number || "-"}
-                </option>
-              ))}
-            </select>
+            <form className="form-grid" onSubmit={changeRoomDuringStay}>
+              <select
+                className="select"
+                value={changeRoomForm.reservation_id}
+                onChange={(e) =>
+                  setChangeRoomForm({
+                    ...changeRoomForm,
+                    reservation_id: e.target.value
+                  })
+                }
+              >
+                <option value="">Choisir une réservation</option>
+                {reservations.map((reservation) => (
+                  <option key={reservation.id} value={reservation.id}>
+                    {reservation.reservation_number || `#${reservation.id}`} -{" "}
+                    {reservation.clients_pms?.nom || "-"}
+                  </option>
+                ))}
+              </select>
 
-            <select
-              className="select"
-              value={moveForm.new_room_id}
-              onChange={(e) => setMoveForm({ ...moveForm, new_room_id: e.target.value })}
-              required
-            >
-              <option value="">Nouvelle chambre</option>
-              {rooms.map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.room_number} - {room.room_type}
-                </option>
-              ))}
-            </select>
+              <select
+                className="select"
+                value={changeRoomForm.new_room_id}
+                onChange={(e) =>
+                  setChangeRoomForm({
+                    ...changeRoomForm,
+                    new_room_id: e.target.value
+                  })
+                }
+              >
+                <option value="">Nouvelle chambre</option>
+                {rooms.map((room) => (
+                  <option key={room.id} value={room.id}>
+                    Chambre {room.room_number}
+                  </option>
+                ))}
+              </select>
 
-            <div style={{ gridColumn: "1 / -1" }}>
-              <textarea
-                className="textarea"
+              <input
+                className="input"
                 placeholder="Note de changement"
-                value={moveForm.note}
-                onChange={(e) => setMoveForm({ ...moveForm, note: e.target.value })}
+                value={changeRoomForm.note}
+                onChange={(e) =>
+                  setChangeRoomForm({
+                    ...changeRoomForm,
+                    note: e.target.value
+                  })
+                }
               />
-            </div>
 
-            <div style={{ gridColumn: "1 / -1" }}>
               <button className="btn" type="submit">
                 Changer la chambre
               </button>
-            </div>
-          </form>
-        </div>
+            </form>
+          </div>
 
-        <div className="card">
-          <h2 className="section-title">Liste des réservations</h2>
+          <div className="card">
+            <h2 className="section-title">Liste des réservations</h2>
 
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Client</th>
-                  <th>Chambre</th>
-                  <th>Arrivée</th>
-                  <th>Départ</th>
-                  <th>Statut</th>
-                  <th>Total chambre TTC</th>
-                  <th>Taxe séjour</th>
-                  <th>Total final</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {reservations.map((reservation) => (
-                  <tr key={reservation.id}>
-                    <td>{reservation.clients_pms?.nom || "-"}</td>
-                    <td>{reservation.rooms?.room_number || "-"}</td>
-                    <td>{reservation.check_in}</td>
-                    <td>{reservation.check_out}</td>
-                    <td>{translateReservationStatus(reservation.status)}</td>
-                    <td>{Number(reservation.room_total_ttc || 0).toFixed(2)} €</td>
-                    <td>{Number(reservation.taxe_sejour_amount || 0).toFixed(2)} €</td>
-                    <td>{Number(reservation.total_amount || 0).toFixed(2)} €</td>
-                    <td>
-                      <div className="btn-row">
-                        <button
-                          className="btn btn-secondary"
-                          onClick={() => updateReservationStatus(reservation, "confirmed")}
-                        >
-                          Confirmer
-                        </button>
-
-                        <button
-                          className="btn btn-success"
-                          onClick={() => updateReservationStatus(reservation, "checked_in")}
-                        >
-                          Check-in
-                        </button>
-
-                        <button
-                          className="btn btn-warning"
-                          onClick={() => updateReservationStatus(reservation, "checked_out")}
-                        >
-                          Check-out
-                        </button>
-
-                        <button
-                          className="btn btn-danger"
-                          onClick={() => updateReservationStatus(reservation, "cancelled")}
-                        >
-                          Annuler
-                        </button>
-
-                        <button
-                          className="btn btn-success"
-                          onClick={() => createInvoiceFromReservation(reservation)}
-                        >
-                          Facturer
-                        </button>
-                      </div>
-                    </td>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>N°</th>
+                    <th>Client</th>
+                    <th>Chambre</th>
+                    <th>Arrivée</th>
+                    <th>Départ</th>
+                    <th>Statut</th>
+                    <th>Total</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+
+                <tbody>
+                  {reservations.map((reservation) => (
+                    <tr key={reservation.id}>
+                      <td>{reservation.reservation_number || reservation.id}</td>
+                      <td>
+                        {reservation.clients_pms?.nom || "-"}
+                        <br />
+                        <span className="helper">
+                          {reservation.clients_pms?.client_code || ""}
+                        </span>
+                      </td>
+                      <td>{reservation.rooms?.room_number || "-"}</td>
+                      <td>{reservation.check_in}</td>
+                      <td>{reservation.check_out}</td>
+                      <td>{reservation.status}</td>
+                      <td>{Number(reservation.total_amount || 0).toFixed(2)} €</td>
+                      <td>
+                        <div className="btn-row">
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() =>
+                              updateReservationStatus(reservation.id, "confirmed")
+                            }
+                          >
+                            Confirmer
+                          </button>
+
+                          <button
+                            className="btn btn-success"
+                            onClick={() =>
+                              updateReservationStatus(reservation.id, "checked_in")
+                            }
+                          >
+                            Check-in
+                          </button>
+
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() =>
+                              updateReservationStatus(reservation.id, "checked_out")
+                            }
+                          >
+                            Check-out
+                          </button>
+
+                          <button
+                            className="btn"
+                            onClick={() => createInvoiceFromReservation(reservation)}
+                          >
+                            Facturer
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {reservations.length === 0 && (
+                    <tr>
+                      <td colSpan="8">Aucune réservation.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
     </Layout>
   );
-}
-
-function translateRoomStatus(status) {
-  if (status === "available") return "Libre";
-  if (status === "occupied") return "Occupée";
-  if (status === "dirty") return "Sale";
-  if (status === "maintenance") return "Maintenance";
-  if (status === "blocked") return "Bloquée";
-  return status;
-}
-
-function translateReservationStatus(status) {
-  if (status === "pending") return "En attente";
-  if (status === "confirmed") return "Confirmée";
-  if (status === "checked_in") return "Check-in";
-  if (status === "checked_out") return "Check-out";
-  if (status === "cancelled") return "Annulée";
-  return status;
 }
